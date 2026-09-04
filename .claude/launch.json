@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "capital-cred-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8420", "--directory", "C:\\Users\\Ryyan\\Downloads\\capital-cred-site"],
+      "port": 8420
+    }
+  ]
+}

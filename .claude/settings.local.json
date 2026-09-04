@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile bot.py)",
+      "Bash(python -c ' *)",
+      "Bash(mkdir -p \"/c/Users/Ryyan/Downloads/capital-cred-site/assets/css\" \"/c/Users/Ryyan/Downloads/capital-cred-site/assets/js\")",
+      "Read(//c/Users/Ryyan/Downloads/**)",
+      "Bash(php -v)",
+      "Bash(rm -rf \"/c/Users/Ryyan/Downloads/capital-cred-site/.claude\")",
+      "Bash(./venv/Scripts/python.exe -m py_compile bot_santander.py)",
+      "Bash(timeout 25 venv_win/Scripts/python.exe gui.py)",
+      "Bash(timeout 15 venv_win/Scripts/python.exe -u gui.py)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\" //FI \"IMAGENAME eq pythonw.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq brave.exe\")",
+      "Bash(ls -la \"C:\\\\Users\\\\Ryyan\\\\AppData\\\\Local\\\\BraveSoftware\\\\Brave-Browser\\\\User Data\" 2>&1 | grep -i -E \"lock|singleton\" *)",
+      "Bash(venv_win/Scripts/python.exe -u -c ' *)",
+      "Bash(xxd)",
+      "PowerShell(node -v)",
+      "PowerShell(npm -v)",
+      "PowerShell(Get-ChildItem \"C:\\\\Program Files\\\\nodejs\" -ErrorAction SilentlyContinue; Get-ChildItem \"$env:LOCALAPPDATA\\\\Programs\" -ErrorAction SilentlyContinue | Select-Object Name; Get-ChildItem \"$env:APPDATA\\\\npm\" -ErrorAction SilentlyContinue; where.exe node 2>$null; where.exe npm 2>$null)",
+      "PowerShell(winget --version 2>&1)",
+      "Bash(mkdir -p \"/c/Users/Ryyan/Downloads/capitalcred-crm\")",
+      "Bash(venv_win/Scripts/python.exe -u \"C:\\\\Users\\\\Ryyan\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Ryyan-Downloads-arqueiro\\\\71ab6a38-fb5d-4810-a34f-10804e9a54b5\\\\scratchpad\\\\reconstruir.py\")",
+      "Bash(venv_win/Scripts/python.exe -c ' *)",
+      "Bash(venv_win/Scripts/python.exe -m py_compile bot_santander.py)",
+      "Bash(python \"C:/Users/Ryyan/AppData/Local/Temp/claude/C--Users-Ryyan-Downloads-arqueiro/47239a85-2fc2-4d8b-a313-cb6fdee2ab79/scratchpad/test_margem.py\")",
+      "PowerShell(Test-Path \"$env:LOCALAPPDATA\\\\Programs\\\\nodejs-portable\\\\node.exe\"; Get-ChildItem \"$env:LOCALAPPDATA\\\\Programs\\\\nodejs-portable\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "Bash(python \"C:/Users/Ryyan/AppData/Local/Temp/claude/C--Users-Ryyan-Downloads-arqueiro/47239a85-2fc2-4d8b-a313-cb6fdee2ab79/scratchpad/recover_zip.py\")",
+      "Bash(python \"C:/Users/Ryyan/AppData/Local/Temp/claude/C--Users-Ryyan-Downloads-arqueiro/47239a85-2fc2-4d8b-a313-cb6fdee2ab79/scratchpad/recover_zip2.py\")",
+      "Bash(python \"C:/Users/Ryyan/AppData/Local/Temp/claude/C--Users-Ryyan-Downloads-arqueiro/47239a85-2fc2-4d8b-a313-cb6fdee2ab79/scratchpad/rebuild_progresso.py\")",
+      "Bash(rm -f _progresso_recuperado.xlsx)",
+      "Bash(python -m py_compile gui.py)"
+    ]
+  }
+}
