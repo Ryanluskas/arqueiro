@@ -449,6 +449,7 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
     """
     _aguardando_otp.clear()
     otp_avisado = False
+    canal_escolhido = False
     pendente = None
     tentativas_do_codigo = 0
     prazo = time.time() + prazo_segundos
@@ -476,6 +477,17 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
                 otp_flow.etapa("login", "pos_credenciais", "ok")
                 _status_queue.put({"type": "login_ok"})
                 return True
+
+            # Tela "Escolha sua forma de receber o código": sem passar por
+            # ela, nenhum código é enviado e a tela do código nunca aparece.
+            if not canal_escolhido and otp_flow.tela_de_escolha_de_canal(ctx):
+                canal_escolhido = otp_flow.escolher_canal(ctx, preferir_email=True)
+                if canal_escolhido:
+                    _status_queue.put({"type": "log",
+                                       "msg": "📧 Pedi o código por e-mail."})
+                    marcar_tela_de_codigo()
+                    _iniciar_watcher_gmail()
+                continue
 
             alvo = otp_flow.localizar_campo(ctx)
             if alvo is not None and not otp_avisado:

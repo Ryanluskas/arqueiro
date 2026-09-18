@@ -248,6 +248,66 @@ def tela_campo_unico(**kw):
     return frame, campo
 
 
+class RadioFalso:
+    def __init__(self, texto_da_linha):
+        self.texto = texto_da_linha
+        self.marcado = False
+
+    def evaluate(self, _js):
+        return self.texto
+
+    def check(self, timeout=None):
+        self.marcado = True
+
+    def click(self, timeout=None, force=False):
+        self.marcado = True
+
+    def is_visible(self):
+        return True
+
+    def is_enabled(self):
+        return True
+
+
+def tela_de_canal(com_email=True):
+    """A tela real: 'Escolha sua forma de receber o código de validação'."""
+    frame = FrameFalso(texto_body="Autenticação Parceiro Santander. "
+                                  "Escolha sua forma de receber o código de validação",
+                       botoes={"Enviar": BotaoFalso("Enviar")})
+    celular = RadioFalso("(62) *****-2835")
+    email = RadioFalso("Ryan***@gmail.com")
+    opcoes = [celular, email] if com_email else [celular]
+    frame.mapa['input[type="radio"]'] = LocatorFalso(opcoes)
+    return frame, celular, email
+
+
+# ============================================ 0. ESCOLHER COMO RECEBER =====
+class TestEscolhaDoCanal:
+    def test_reconhece_a_tela_de_escolha(self):
+        frame, _, _ = tela_de_canal()
+        assert otp_flow.tela_de_escolha_de_canal(ContextoFalso([PaginaFalsa(frame)])) is not None
+
+    def test_tela_comum_nao_e_confundida(self):
+        frame = FrameFalso(texto_body="Bem-vindo ao Parceiro Santander")
+        assert otp_flow.tela_de_escolha_de_canal(ContextoFalso([PaginaFalsa(frame)])) is None
+
+    def test_escolhe_o_email_e_clica_em_enviar(self):
+        """E-mail é o único canal que o bot consegue ler sozinho."""
+        frame, celular, email = tela_de_canal()
+        assert otp_flow.escolher_canal(ContextoFalso([PaginaFalsa(frame)])) is True
+        assert email.marcado is True and celular.marcado is False
+        assert frame.botoes["Enviar"].cliques == 1
+
+    def test_sem_email_usa_o_que_existe(self):
+        frame, celular, _ = tela_de_canal(com_email=False)
+        assert otp_flow.escolher_canal(ContextoFalso([PaginaFalsa(frame)])) is True
+        assert celular.marcado is True
+
+    def test_sem_a_tela_nao_faz_nada(self):
+        frame = FrameFalso(texto_body="outra coisa")
+        assert otp_flow.escolher_canal(ContextoFalso([PaginaFalsa(frame)])) is False
+
+
 # =================================================== 1. LOCALIZAR O CAMPO ===
 class TestLocalizarCampo:
     def test_acha_as_seis_caixas_do_componente_do_portal(self):
@@ -259,6 +319,14 @@ class TestLocalizarCampo:
 
     def test_acha_campo_unico(self):
         frame, _ = tela_campo_unico()
+        alvo = otp_flow.localizar_campo(ContextoFalso([PaginaFalsa(frame)]))
+        assert alvo is not None and alvo.tipo == "unico"
+
+    def test_acha_o_campo_unico_com_rotulo_do_portal(self):
+        """Tela real: um input "Código de validação", sem maxlength."""
+        frame = FrameFalso(botoes={"Continuar": BotaoFalso("Continuar")})
+        campo = CampoFalso(frame, 0, limite=6)
+        frame.mapa['input[aria-label*="digo" i]'] = LocatorFalso([campo])
         alvo = otp_flow.localizar_campo(ContextoFalso([PaginaFalsa(frame)]))
         assert alvo is not None and alvo.tipo == "unico"
 

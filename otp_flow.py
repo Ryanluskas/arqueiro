@@ -64,6 +64,15 @@ _SELETORES = (
     ("unico",  'input[maxlength="6"]'),
     ("unico",  'input[inputmode="numeric"]'),
     ("unico",  'input[type="tel"]'),
+    # A tela real do Santander (Keycloak) traz UM campo com rotulo
+    # "Código de validação" -- sem maxlength e sem inputmode.
+    ("unico",  'input[id*="code" i]'),
+    ("unico",  'input[id*="codigo" i]'),
+    ("unico",  'input[name*="code" i]'),
+    ("unico",  'input[name*="otp" i]'),
+    ("unico",  'input[name*="token" i]'),
+    ("unico",  'input[aria-label*="digo" i]'),
+    ("unico",  'input[placeholder*="digo" i]'),
 )
 
 # Rotulos do botao que confirma o codigo, do mais provavel ao menos.
@@ -88,6 +97,113 @@ def etapa(nome: str, acao: str, resultado: str, tentativa: int = 1, **extra) -> 
               f"attempt={tentativa}"]
     partes += [f"{k}={v}" for k, v in extra.items() if v not in (None, "")]
     logger.info("[CODE_FLOW] " + " ".join(partes))
+
+
+
+# ---------------------------------------------------------------------------
+# 0. ESCOLHER COMO RECEBER O CODIGO
+# ---------------------------------------------------------------------------
+# Antes da tela do codigo, o portal mostra "Escolha sua forma de receber o
+# codigo de validacao" com duas opcoes (celular e e-mail) e um botao Enviar.
+# O bot parava aqui: nenhum codigo era enviado, e a tela do codigo nunca
+# chegava a existir.
+_MARCAS_DE_CANAL = ("forma de receber", "receber o código", "receber o codigo",
+                    "escolha sua forma")
+_BOTOES_DE_ENVIO = ("Enviar", "Continuar", "Avançar", "Avancar")
+
+
+def tela_de_escolha_de_canal(ctx):
+    """A pagina/frame que esta' pedindo para escolher o canal, ou None."""
+    for pagina in _paginas(ctx):
+        for frame in _frames(pagina):
+            try:
+                texto = " ".join((frame.inner_text("body") or "").lower().split())
+            except Exception:
+                continue
+            if any(marca in texto for marca in _MARCAS_DE_CANAL):
+                return pagina, frame
+    return None
+
+
+def escolher_canal(ctx, preferir_email: bool = True) -> bool:
+    """Marca o canal (e-mail, por padrao) e clica em Enviar.
+
+    O e-mail e' o preferido porque e' o unico que o bot consegue ler sozinho
+    (ver gmail_otp.py); o SMS depende de alguem olhar o celular.
+    """
+    achado = tela_de_escolha_de_canal(ctx)
+    if achado is None:
+        return False
+    pagina, frame = achado
+
+    escolhida = _marcar_opcao(frame, preferir_email)
+    if not escolhida:
+        etapa("choose_channel", "opcao", "not_found")
+        return False
+
+    for rotulo in _BOTOES_DE_ENVIO:
+        botao = _botao_por_texto(Alvo(pagina, frame, "unico", None, 0), rotulo)
+        if botao is None:
+            continue
+        if not _esperar_habilitado(botao):
+            continue
+        try:
+            botao.click(timeout=TIMEOUT_CURTO)
+            etapa("choose_channel", f"enviar:{rotulo}", "ok", canal=escolhida)
+            return True
+        except Exception as exc:
+            etapa("choose_channel", f"enviar:{rotulo}", "error", erro=_curto(exc))
+    etapa("choose_channel", "enviar", "not_found", canal=escolhida)
+    return False
+
+
+def _marcar_opcao(frame, preferir_email: bool):
+    """Clica na opcao desejada. Devolve "email", "sms" ou "" se nao achou."""
+    try:
+        radios = frame.locator('input[type="radio"]')
+        total = radios.count()
+    except Exception:
+        total = 0
+
+    melhor = None
+    melhor_tipo = ""
+    for i in range(total):
+        radio = radios.nth(i)
+        texto = _texto_da_linha(radio)
+        eh_email = "@" in texto
+        tipo = "email" if eh_email else "sms"
+        if (preferir_email and eh_email) or (not preferir_email and not eh_email):
+            melhor, melhor_tipo = radio, tipo
+            break
+        if melhor is None:
+            melhor, melhor_tipo = radio, tipo
+
+    if melhor is None:
+        return ""
+    for tentar in (lambda: melhor.check(timeout=TIMEOUT_CURTO),
+                   lambda: melhor.click(timeout=TIMEOUT_CURTO),
+                   lambda: melhor.click(timeout=TIMEOUT_CURTO, force=True)):
+        try:
+            tentar()
+            return melhor_tipo
+        except TypeError:
+            try:
+                melhor.click()
+                return melhor_tipo
+            except Exception:
+                continue
+        except Exception:
+            continue
+    return ""
+
+
+def _texto_da_linha(radio) -> str:
+    """O texto ao lado do radio (para saber se aquela opcao e' o e-mail)."""
+    try:
+        return radio.evaluate(
+            "el => (el.closest('label,li,tr,div') || el.parentElement || {}).innerText || ''")
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
