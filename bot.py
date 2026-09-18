@@ -27,6 +27,12 @@ try:
 except ImportError:
     _STEALTH_LIB = False
 
+try:
+    import gmail_otp as _gmail_otp
+    _GMAIL_OTP = True
+except ImportError:
+    _GMAIL_OTP = False
+
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
@@ -346,6 +352,7 @@ def tentar_login_automatico(page) -> bool:
                 pass
 
         otp_avisado = False
+        _gmail_thread_iniciado = False
         for seg in range(90):
             time.sleep(1)
             if _encontrar_pagina_formulario(ctx) is not None:
@@ -367,28 +374,130 @@ def tentar_login_automatico(page) -> bool:
                 except Exception:
                     pass
 
+            # Assim que a tela OTP aparece, dispara thread que lê o Gmail automaticamente
+            if otp_avisado and not _gmail_thread_iniciado and _GMAIL_OTP:
+                _gmail_thread_iniciado = True
+                def _gmail_watcher():
+                    try:
+                        logger.info("gmail_otp: thread iniciada, aguardando código no Gmail...")
+                        _status_queue.put({"type": "log", "msg": "🔍 Buscando OTP no Gmail automaticamente..."})
+                        codigo = _gmail_otp.aguardar_otp(timeout=85, intervalo=5)
+                        if codigo:
+                            _otp_queue.put(codigo)
+                            logger.info(f"gmail_otp: código {codigo} enviado para a fila.")
+                            _status_queue.put({"type": "log", "msg": f"✓ OTP detectado automaticamente: {codigo}"})
+                        else:
+                            _status_queue.put({"type": "log", "msg": "⚠ OTP não encontrado no Gmail — digite manualmente."})
+                    except Exception as ex:
+                        logger.warning(f"gmail_otp watcher: {ex}")
+                        _status_queue.put({"type": "log", "msg": f"⚠ Erro ao ler Gmail: {ex}"})
+                threading.Thread(target=_gmail_watcher, daemon=True, name="gmail-otp-watcher").start()
+
             try:
                 otp_code = _otp_queue.get_nowait()
-                for p2 in ctx.pages:
-                    try:
-                        inputs1 = p2.locator('input[maxlength="1"]')
-                        inputs6 = p2.locator('input[maxlength="6"]')
-                        if inputs1.count() >= 4:
-                            for i, ch in enumerate(otp_code[:inputs1.count()]):
-                                inputs1.nth(i).fill(ch)
-                        elif inputs6.count() > 0:
-                            inputs6.first.fill(otp_code)
-                        for sel2 in ['button[type="submit"]', 'button:has-text("Confirmar")',
-                                     'button:has-text("Verificar")', 'button:has-text("Entrar")']:
-                            b = p2.locator(sel2).first
-                            if b.is_visible(timeout=500):
-                                b.click()
-                                break
-                        break
-                    except Exception:
-                        pass
             except _queue_mod.Empty:
-                pass
+                continue
+
+            # --- Etapa 1: Garantir que estamos na tela de OTP correta ---
+            otp_page = _find_otp_page(ctx)
+            if otp_page is None:
+                logger.warning("CODE_FLOW: tela de OTP nao encontrada, tentando recuperar...")
+                _status_queue.put({"type": "log", "msg": "⚠ Tela OTP nao encontrada — tentando recuperar..."})
+                # Tenta reencontrar a página de login/formulário
+                if not _encontrar_pagina_formulario(ctx):
+                    logger.warning("CODE_FLOW: nao foi possivel encontrar formulario")
+                    continue
+                otp_page = _find_otp_page(ctx)
+                if otp_page is None:
+                    continue
+
+            # --- Etapa 2: Localizar campos de código ---
+            inputs1 = otp_page.locator('input[maxlength="1"]')
+            inputs6 = otp_page.locator('input[maxlength="6"]')
+            code_field = None
+            num_single = inputs1.count()
+
+            if num_single >= 4:
+                code_field = ("single", inputs1)
+            elif inputs6.count() > 0:
+                code_field = ("six_digit", inputs6)
+            else:
+                logger.warning("CODE_FLOW: nenhum campo OTP encontrado na tela atual")
+                _status_queue.put({"type": "log", "msg": "⚠ Nenhum campo OTP encontrado na tela."})
+                continue
+
+            # --- Etapa 3: Focar o campo antes de escrever ---
+            try:
+                if code_field[0] == "single":
+                    # Focar cada input individualmente
+                    for i in range(min(num_single, len(otp_code))):
+                        code_field[1].nth(i).focus()
+                        time.sleep(0.1)
+                else:
+                    code_field[1].first.focus()
+                time.sleep(0.3)
+            except Exception as e:
+                logger.warning(f"CODE_FLOW: erro ao focar campo: {e}")
+
+            # --- Etapa 4: Inserir o código ---
+            try:
+                if code_field[0] == "single":
+                    for i, ch in enumerate(otp_code[:num_single]):
+                        code_field[1].nth(i).fill(ch)
+                else:
+                    code_field[1].first.fill(otp_code)
+            except Exception as e:
+                logger.warning(f"CODE_FLOW: erro ao inserir codigo: {e}")
+                _status_queue.put({"type": "log", "msg": f"⚠ Erro ao inserir OTP: {e}"})
+                continue
+
+            # --- Etapa 5: Verificar se código foi inserido ---
+            if not _verificar_codigo_inserido(otp_page, code_field, otp_code):
+                # Se falhar primeira tentativa, tentar novamente (máx 2 tentativas)
+                logger.info("CODE_FLOW: primeira tentativa falhou, tentando novamente...")
+                try:
+                    if code_field[0] == "single":
+                        for i, ch in enumerate(otp_code[:num_single]):
+                            code_field[1].nth(i).fill(ch)
+                    else:
+                        code_field[1].first.fill(otp_code)
+
+                    if not _verificar_codigo_inserido(otp_page, code_field, otp_code):
+                        logger.error("CODE_FLOW: falha inserir codigo apos 2 tentativas")
+                        _status_queue.put({"type": "log", "msg": "✗ Falha ao inserir OTP depois de 2 tentativas."})
+                        continue
+                except Exception as e2:
+                    logger.error(f"CODE_FLOW: erro na tentativa secundaria: {e2}")
+                    _status_queue.put({"type": "log", "msg": f"✗ Erro secundario: {e2}"})
+                    continue
+
+            # --- Etapa 6: Confirmar código ---
+            try:
+                clicked = False
+                for sel2 in ['button[type="submit"]', 'button:has-text("Confirmar")',
+                             'button:has-text("Verificar")', 'button:has-text("Entrar")']:
+                    b = otp_page.locator(sel2).first
+                    if b.is_visible(timeout=500):
+                        b.click()
+                        clicked = True
+                        logger.info("CODE_FLOW: botao de confirmacao clicado")
+                        break
+                if not clicked:
+                    logger.warning("CODE_FLOW: nenhum botao de confirmacao encontrado/visivel")
+                    _status_queue.put({"type": "log", "msg": "⚠ Nenhum botao de confirmacao encontrado."})
+                    continue
+            except Exception as e:
+                logger.warning(f"CODE_FLOW: erro ao clicar botao confirmar: {e}")
+                _status_queue.put({"type": "log", "msg": f"⚠ Erro ao confirmar OTP: {e}"})
+                continue
+
+            # --- Etapa 7: Pequena espera para tela estabilizar ---
+            time.sleep(2)
+
+            logger.info(f"CODE_FLOW: OTP {otp_code} processado com sucesso")
+            _status_queue.put({"type": "log", "msg": f"✓ OTP {otp_code} inserido e confirmado."})
+
+            break
 
         return False
     except Exception as e:
@@ -1156,6 +1265,77 @@ def _eh_valor_moeda(v: str) -> bool:
     """True só se o texto tem cara de dinheiro (centavos, ex.: '-R$ 188,76', 'R$ 0,04').
     Serve para NÃO confundir a margem com a Matrícula (inteiro puro, ex.: '909801')."""
     return bool(re.search(r'\d,\d{2}', v or ""))
+
+
+def _find_otp_page(ctx) -> object:
+    """
+    Tenta encontrar a página de verificação de OTP.
+    Procura por seletores característicos da tela OTP do WhatsApp Web.
+    Retorna a página ou None se não encontrar.
+    """
+    try:
+        # Estratégia 1: Procurar por inputs de OTP (maxlength="1" ou "6")
+        for p in ctx.pages:
+            try:
+                inputs1 = p.locator('input[maxlength="1"]')
+                inputs6 = p.locator('input[maxlength="6"]')
+                if inputs1.count() >= 4 or inputs6.count() > 0:
+                    # Verifica se a URL indica tela de login/verificação
+                    url = p.url.lower()
+                    if any(k in url for k in ["login", "auth", "verific", "code", "otp"]):
+                        logger.debug(f"_find_otp_page: encontrou tela OTP em {url}")
+                        return p
+            except Exception:
+                continue
+
+        # Estratégia 2: Se já estamos no formulário mas apareceu tela OTP
+        for p in ctx.pages:
+            try:
+                if p.locator('input[maxlength="1"]').count() >= 4:
+                    return p
+            except Exception:
+                continue
+
+        return None
+    except Exception as e:
+        logger.warning(f"_find_otp_page: erro geral: {e}")
+        return None
+
+
+def _verificar_codigo_inserido(otp_page, code_field: tuple, otp_code: str) -> bool:
+    """
+    Verifica se o código foi realmente inserido no campo.
+    Tenta ler o valor dos inputs e compara com o código esperado.
+    """
+    try:
+        if code_field[0] == "single":
+            # Ler valores dos inputs de um dígito cada
+            valores = []
+            for i in range(code_field[1].count()):
+                try:
+                    val = code_field[1].nth(i).input_value() or ""
+                    valores.append(val.strip())
+                except Exception:
+                    valores.append("")
+            # O código foi inserido se todos os inputs têm conteúdo
+            # e o concatenado corresponde (ou parcialmente) ao código
+            concat = "".join(valores)
+            if concat and len(concat) > 0:
+                # Pode ser que tenha sido inserido parcialmente ou totalmente
+                return True
+            return False
+        else:
+            # Campo único de 6 dígitos
+            try:
+                val = code_field[1].first.input_value() or ""
+                # Verificar se o valor contém os dígitos do código
+                # O fill() do Playwright pode deixar o valor limpo
+                return len(val.strip()) > 0
+            except Exception:
+                return False
+    except Exception as e:
+        logger.warning(f"_verificar_codigo_inserido: erro ao verificar: {e}")
+        return False
 
 
 def _capturar_margem(page) -> str:

@@ -13,6 +13,9 @@ client_secret*.json
 serviceAccount*.json
 *.pem
 *.key
+# Gmail OAuth2 (NUNCA versionar)
+credentials.json
+token_gmail.json
 
 # Dados de clientes / pessoais
 *.csv
