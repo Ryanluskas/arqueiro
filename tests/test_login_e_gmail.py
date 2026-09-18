@@ -203,6 +203,102 @@ class TestWatcherDoGmail:
         assert len(criadas) == 2
 
 
+# ============================================ 3b. PREENCHER CPF E SENHA ====
+class CampoComMascara:
+    """O campo do CPF do portal: formata sozinho o que for digitado."""
+
+    def __init__(self, mascara=True):
+        self.valor = ""
+        self.mascara = mascara
+        self.visivel = True
+
+    def click(self, force=False, timeout=None):
+        pass
+
+    def fill(self, texto):
+        if texto == "":
+            self.valor = ""
+            return
+        # `fill` joga o texto inteiro: com máscara, texto já pontuado vira lixo
+        self.valor = self._formatar(texto) if self.mascara else texto
+
+    def type(self, texto, delay=None):
+        for ch in texto:
+            self.valor = self._formatar(
+                "".join(c for c in self.valor + ch if c.isdigit()))
+
+    def input_value(self):
+        return self.valor
+
+    def _formatar(self, texto):
+        if not self.mascara:
+            return texto
+        d = "".join(c for c in texto if c.isdigit())[:11]
+        if len(d) <= 3:
+            return d
+        if len(d) <= 6:
+            return f"{d[:3]}.{d[3:]}"
+        if len(d) <= 9:
+            return f"{d[:3]}.{d[3:6]}.{d[6:]}"
+        return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+
+
+class PaginaDeLogin:
+    def __init__(self, campos):
+        self.campos = campos            # seletor -> campo
+
+    def wait_for_selector(self, seletor, state=None, timeout=None):
+        if seletor in self.campos:
+            return self.campos[seletor]
+        raise RuntimeError("timeout")
+
+    def locator(self, seletor):
+        class _L:
+            first = self.campos.get(seletor)
+        return _L()
+
+
+class TestPreencherLogin:
+    def test_cpf_formatado_entra_certo_no_campo_com_mascara(self):
+        """Regressão: o CPF salvo vem com pontos; mandar assim pela `fill`
+        fazia a máscara formatar por cima e o valor sair inválido."""
+        campo = CampoComMascara()
+        pagina = PaginaDeLogin({"input#inputUser": campo})
+        ok = bot._preencher_campo_login(pagina, ["input#inputUser"],
+                                        "529.982.247-25", "cpf", so_digitos=True)
+        assert ok is True
+        assert campo.valor == "529.982.247-25"
+
+    def test_senha_vai_literal(self):
+        campo = CampoComMascara(mascara=False)
+        pagina = PaginaDeLogin({"input#inputPassword": campo})
+        assert bot._preencher_campo_login(pagina, ["input#inputPassword"],
+                                          "s3nh@!123", "senha") is True
+        assert campo.valor == "s3nh@!123"
+
+    def test_sem_credencial_avisa_e_para(self):
+        pagina = PaginaDeLogin({"input#inputUser": CampoComMascara()})
+        assert bot._preencher_campo_login(pagina, ["input#inputUser"],
+                                          "", "cpf", so_digitos=True) is False
+
+    def test_campo_que_nao_aparece_nao_vira_sucesso(self):
+        pagina = PaginaDeLogin({})
+        assert bot._preencher_campo_login(pagina, ["input#inputUser"],
+                                          "52998224725", "cpf", so_digitos=True) is False
+
+    def test_campo_que_ignora_escrita_e_reportado(self):
+        class Teimoso(CampoComMascara):
+            def type(self, texto, delay=None):
+                pass
+
+            def fill(self, texto):
+                self.valor = ""
+
+        pagina = PaginaDeLogin({"input#inputUser": Teimoso()})
+        assert bot._preencher_campo_login(pagina, ["input#inputUser"],
+                                          "52998224725", "cpf", so_digitos=True) is False
+
+
 # ================================================ 4. CREDENCIAIS E CONFIG ==
 class TestCredenciaisEConfig:
     def test_recarrega_sem_reiniciar(self, tmp_path, monkeypatch):

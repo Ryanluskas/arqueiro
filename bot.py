@@ -548,6 +548,73 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
     return False
 
 
+def _so_digitos(texto: str) -> str:
+    return "".join(ch for ch in str(texto or "") if ch.isdigit())
+
+
+def _esperar_visivel(pagina, seletor: str, ms: int = 8000):
+    """Espera o campo aparecer DE VERDADE.
+
+    `is_visible(timeout=...)` ignora o timeout e responde na hora: numa página
+    que ainda estava renderizando, os três seletores davam False e o login
+    desistia em silêncio.
+    """
+    try:
+        pagina.wait_for_selector(seletor, state="visible", timeout=ms)
+        return pagina.locator(seletor).first
+    except Exception:
+        return None
+
+
+def _preencher_campo_login(pagina, seletores, valor: str, nome: str,
+                           so_digitos: bool = False) -> bool:
+    """Escreve e CONFERE. Devolve False sem inventar sucesso.
+
+    O campo do CPF tem máscara: mandar "709.589.331-46" pronto faz a máscara
+    formatar por cima e o valor sair inválido -- o botão Entrar fica cinza e
+    nada acontece. Por isso digitamos só os dígitos, tecla a tecla, e
+    comparamos ignorando a pontuação que a própria máscara coloca.
+    """
+    if not valor:
+        otp_flow.etapa("login", f"{nome}", "sem_credencial")
+        _status_queue.put({"type": "log",
+                           "msg": f"✗ {nome.upper()} não configurado — aba Configurações."})
+        return False
+
+    escrever = _so_digitos(valor) if so_digitos else valor
+
+    def confere(campo) -> bool:
+        try:
+            lido = campo.input_value() or ""
+        except Exception:
+            return False
+        if so_digitos:
+            return _so_digitos(lido) == _so_digitos(valor)
+        return lido == valor
+
+    for seletor in seletores:
+        campo = _esperar_visivel(pagina, seletor, 8000 if seletor is seletores[0] else 2000)
+        if campo is None:
+            continue
+        for tecnica in ("teclado", "fill"):
+            try:
+                campo.click(force=True, timeout=3000)
+                campo.fill("")
+                if tecnica == "teclado":
+                    campo.type(escrever, delay=60)
+                else:
+                    campo.fill(escrever)
+            except Exception as e:
+                otp_flow.etapa("login", f"{nome}:{tecnica}", "error", erro=str(e)[:80])
+                continue
+            if confere(campo):
+                otp_flow.etapa("login", f"{nome}:{tecnica}", "ok", seletor=seletor)
+                return True
+            otp_flow.etapa("login", f"{nome}:{tecnica}", "verification_failed",
+                           seletor=seletor)
+    return False
+
+
 def tentar_login_automatico(page) -> bool:
     ctx = page.context
 
@@ -583,19 +650,11 @@ def tentar_login_automatico(page) -> bool:
             return False
         time.sleep(0.8)
 
-        # CPF
-        cpf_ok = False
-        for sel in ['input#inputUser', 'input[id="inputUser"]', 'input[type="text"]']:
-            try:
-                loc = lp.locator(sel).first
-                if loc.is_visible(timeout=2000):
-                    loc.click(force=True)
-                    time.sleep(0.15)
-                    loc.fill(CPF_ACESSO)
-                    cpf_ok = True
-                    break
-            except Exception:
-                pass
+        # CPF (o campo tem máscara: só os dígitos entram)
+        cpf_ok = _preencher_campo_login(
+            lp, ['input#inputUser', 'input[id="inputUser"]',
+                 'input[name*="user" i]', 'input[type="text"]'],
+            CPF_ACESSO, "cpf", so_digitos=True)
 
         if not cpf_ok:
             try:
@@ -622,24 +681,20 @@ def tentar_login_automatico(page) -> bool:
                 pass
 
         if not cpf_ok:
+            otp_flow.etapa("login", "cpf", "falhou")
+            _status_queue.put({"type": "log",
+                               "msg": "✗ Não consegui preencher o CPF na tela de login."})
             return False
 
         time.sleep(0.5)
 
         # Senha
-        senha_ok = False
-        for sel in ['input[type="password"]', 'input[id*="senha"]', 'input[name*="senha"]',
-                    'input[formcontrolname*="senha"]', 'input[formcontrolname*="password"]']:
-            try:
-                loc = lp.locator(sel).first
-                if loc.is_visible(timeout=2000):
-                    loc.click(force=True)
-                    time.sleep(0.15)
-                    loc.fill(SENHA_ACESSO)
-                    senha_ok = True
-                    break
-            except Exception:
-                pass
+        senha_ok = _preencher_campo_login(
+            lp, ['input#inputPassword', 'input[type="password"]',
+                 'input[id*="senha" i]', 'input[name*="senha" i]',
+                 'input[formcontrolname*="senha" i]',
+                 'input[formcontrolname*="password" i]'],
+            SENHA_ACESSO, "senha")
 
         if not senha_ok:
             try:
@@ -666,19 +721,40 @@ def tentar_login_automatico(page) -> bool:
                 pass
 
         if not senha_ok:
+            otp_flow.etapa("login", "senha", "falhou")
+            _status_queue.put({"type": "log",
+                               "msg": "✗ Não consegui preencher a senha na tela de login."})
             return False
 
         time.sleep(0.5)
 
-        for sel in ['button[type="submit"]', 'button:has-text("Entrar")',
+        # O "Entrar" nasce desabilitado e só habilita quando a máscara aceita
+        # os dois campos: clicar antes disso trava 30s no auto-wait e volta.
+        enviou = False
+        for sel in ['button:has-text("Entrar")', 'button[type="submit"]',
                     'button:has-text("Acessar")', 'input[type="submit"]']:
-            try:
-                b = lp.locator(sel).first
-                if b.is_visible(timeout=800):
-                    b.click()
+            b = _esperar_visivel(lp, sel, 3000)
+            if b is None:
+                continue
+            fim_espera = time.time() + 5
+            while time.time() < fim_espera:
+                try:
+                    if b.is_enabled():
+                        break
+                except Exception:
                     break
-            except Exception:
-                pass
+                time.sleep(0.25)
+            try:
+                b.click(timeout=3000)
+                enviou = True
+                otp_flow.etapa("login", f"entrar:{sel}", "ok")
+                break
+            except Exception as e:
+                otp_flow.etapa("login", f"entrar:{sel}", "error", erro=str(e)[:80])
+        if not enviou:
+            otp_flow.etapa("login", "entrar", "not_clicked")
+            _status_queue.put({"type": "log",
+                               "msg": "⚠ Preenchi os campos, mas não consegui clicar em Entrar."})
 
         # O portal pode pedir o código de verificação agora.
         if aguardar_codigo_e_entrar(ctx):
