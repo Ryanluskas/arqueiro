@@ -27,6 +27,8 @@ try:
 except ImportError:
     _STEALTH_LIB = False
 
+import otp_flow
+
 try:
     import gmail_otp as _gmail_otp
     _GMAIL_OTP = True
@@ -43,19 +45,51 @@ PROGRESSO_XLSX  = "_progresso.xlsx"   # estado completo p/ retomar (uso interno 
 DEBUG_MARGEM    = True   # salva _debug_margem.html quando não conseguir ler a margem
 URL_FORMULARIO  = "https://www.parceirosantander.com.br/spa-base/logged-area/recommendation/"
 URL_LANDING     = "https://www.parceirosantander.com.br/spa-base/landing-page"
+PASTA_DO_BOT    = os.path.dirname(os.path.abspath(__file__))
+CONFIG_INI      = os.path.join(PASTA_DO_BOT, "config.ini")
+CREDENCIAIS_INI = os.path.join(PASTA_DO_BOT, "credenciais.ini")
+
+# Caminhos padrao desta maquina. Em outro PC eles nao existem -- por isso o
+# config.ini (escrito pela aba Configuracoes da GUI) tem a ultima palavra.
 PERFIL_DIR      = r"C:\Users\Ryyan\AppData\Local\BraveSoftware\Brave-Browser\User Data"
 BRAVE_EXE       = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+
+
+def carregar_config() -> tuple[str, str]:
+    """Le config.ini e aplica navegador/perfil desta instalacao.
+
+    Devolve (executavel, perfil) ja' aplicados nas globais, para a GUI mostrar
+    o que vai ser usado de fato.
+    """
+    global PERFIL_DIR, BRAVE_EXE
+    cfg = configparser.ConfigParser(interpolation=None)
+    try:
+        if cfg.read(CONFIG_INI, encoding="utf-8") and cfg.has_section("navegador"):
+            exe    = cfg.get("navegador", "executavel", fallback="").strip()
+            perfil = cfg.get("navegador", "perfil",     fallback="").strip()
+            if exe:
+                BRAVE_EXE = exe
+            if perfil:
+                PERFIL_DIR = perfil
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Falha ao ler config.ini: {e}")
+    return BRAVE_EXE, PERFIL_DIR
 TIMEOUT         = 25_000
 
 
 def _carregar_credenciais() -> tuple[str, str]:
-    """Lê CPF/senha de variável de ambiente ou de credenciais.ini (fora do código)."""
+    """Lê CPF/senha de variável de ambiente ou de credenciais.ini (fora do código).
+
+    O caminho é absoluto (pasta do bot): quando a GUI é aberta de outro
+    diretório, o arquivo relativo não era encontrado e o bot seguia sem
+    credencial, em silêncio.
+    """
     cpf   = os.environ.get("SANTANDER_CPF", "").strip()
     senha = os.environ.get("SANTANDER_SENHA", "").strip()
     if not (cpf and senha):
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(interpolation=None)
         try:
-            if cfg.read("credenciais.ini", encoding="utf-8") and cfg.has_section("acesso"):
+            if cfg.read(CREDENCIAIS_INI, encoding="utf-8") and cfg.has_section("acesso"):
                 cpf   = cpf   or cfg.get("acesso", "cpf",   fallback="").strip()
                 senha = senha or cfg.get("acesso", "senha", fallback="").strip()
         except Exception as e:
@@ -67,6 +101,25 @@ def _carregar_credenciais() -> tuple[str, str]:
 
 
 CPF_ACESSO, SENHA_ACESSO = _carregar_credenciais()
+
+
+def recarregar_credenciais() -> bool:
+    """Relê credenciais.ini sem reiniciar o programa.
+
+    A GUI grava o arquivo e chama isto; antes, as credenciais eram lidas uma
+    única vez na importação e só valiam na próxima abertura.
+    """
+    global CPF_ACESSO, SENHA_ACESSO
+    CPF_ACESSO, SENHA_ACESSO = _carregar_credenciais()
+    return bool(CPF_ACESSO and SENHA_ACESSO)
+
+
+def recarregar_config() -> tuple[str, str]:
+    """Idem para o config.ini (navegador e perfil)."""
+    return carregar_config()
+
+
+carregar_config()
 
 BURST_MIN    = 8    # timing conservador (revertido da v13 — evita bloqueio do site)
 BURST_MAX    = 12
@@ -115,6 +168,9 @@ _start_event      = threading.Event()   # reservado
 _otp_queue        = _queue_mod.Queue()  # GUI envia OTP
 _status_queue     = _queue_mod.Queue()  # Bot envia status para GUI
 _pause_event      = threading.Event()   # GUI seta para pausar
+_aguardando_otp   = threading.Event()   # segura o fechador de abas na tela do codigo
+_parar_gmail      = threading.Event()   # avisa o watcher que nao precisa mais
+_gmail_thread     = None                # watcher do Gmail (um por vez)
 
 _ultimo_keepalive = 0.0
 
@@ -180,8 +236,42 @@ def _url_real(page) -> str:
         return page.url
 
 def sessao_expirada(page) -> bool:
+    # Página fechada devolve URL do cache e passava por "sessão viva": toda
+    # ação seguinte estourava sem ninguém tentar relogar.
+    try:
+        if page.is_closed():
+            return True
+    except Exception:
+        pass
     url = _url_real(page).lower()
     return "landing-page" in url or "/login" in url or "logout" in url
+
+
+def _paginas_logadas(ctx) -> list:
+    """Todas as abas que parecem estar dentro do portal, agora."""
+    dentro = []
+    for p in ctx.pages:
+        try:
+            if p.is_closed():
+                continue
+            url = _url_real(p).lower()
+            if "logged-area" in url and "landing" not in url and "/login" not in url:
+                dentro.append(p)
+        except Exception:
+            continue
+    return dentro
+
+
+def _pagina_logada(ctx):
+    """Alguma aba já está DENTRO do portal (qualquer tela logada).
+
+    `_encontrar_pagina_formulario` exige a rota do formulário; o portal, depois
+    do login, para em `/logged-area/home`. Usar aquela função como prova de
+    login fazia o bot concluir "ainda expirado" estando logado, e girar horas
+    no laço de relogin (há 39h de silêncio no bot_log.txt por causa disso).
+    """
+    dentro = _paginas_logadas(ctx)
+    return dentro[0] if dentro else None
 
 def _encontrar_pagina_formulario(ctx):
     for p in ctx.pages:
@@ -218,6 +308,233 @@ def _clicar_acessar_portal(page) -> bool:
         except Exception:
             pass
     return False
+
+# ---------------------------------------------------------------------------
+# CODIGO DE VERIFICACAO (OTP) — apoio
+# ---------------------------------------------------------------------------
+def marcar_tela_de_codigo(momento: float = None) -> None:
+    """Registra QUANDO a tela do código apareceu.
+
+    Código enfileirado bem antes disso é de outra tentativa (e o portal já não
+    aceita); código digitado segundos antes da tela continua valendo.
+    """
+    global _marco_da_tela
+    _marco_da_tela = momento if momento is not None else time.time()
+
+
+def _drenar_fila_otp() -> int:
+    """Joga fora codigo que sobrou de uma tentativa anterior.
+
+    OTP vale poucos minutos. A fila so' era limpa no botao Iniciar da GUI,
+    entao um codigo velho era digitado numa tela nova e o log dizia "sucesso".
+    """
+    descartados = 0
+    while True:
+        try:
+            _otp_queue.get_nowait()
+            descartados += 1
+        except _queue_mod.Empty:
+            break
+    if descartados:
+        otp_flow.etapa("drain_queue", "descartar", "ok", codigos=descartados)
+    return descartados
+
+
+# Um código do Santander vale poucos minutos; depois disso não adianta tentar.
+IDADE_MAXIMA_CODIGO = 120.0
+# Folga para o operador que digita ANTES de a tela aparecer (acontece sempre:
+# o e-mail chega antes de o portal renderizar a tela).
+GRACA_ANTES_DA_TELA = 60.0
+_marco_da_tela = 0.0
+
+
+def enfileirar_codigo(codigo: str) -> None:
+    """Põe o código na fila com a hora de chegada.
+
+    O carimbo é o que permite distinguir "o operador acabou de digitar" de
+    "sobrou da tentativa anterior" — antes o laço drenava a fila inteira no
+    início e engolia o código recém-digitado.
+    """
+    _otp_queue.put((str(codigo or "").strip(), time.time()))
+
+
+def _proximo_codigo():
+    """Próximo código ainda válido; descarta em silêncio os que expiraram."""
+    while True:
+        try:
+            item = _otp_queue.get_nowait()
+        except _queue_mod.Empty:
+            return None
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            codigo, carimbo = item
+        else:                       # formato antigo: assume que chegou agora
+            codigo, carimbo = item, time.time()
+        codigo = str(codigo or "").strip()
+        if not codigo:
+            continue
+        carimbo = float(carimbo or 0)
+        idade = time.time() - carimbo
+        if idade > IDADE_MAXIMA_CODIGO:
+            otp_flow.etapa("queue", "descartar_velho", "expired",
+                           idade=f"{int(idade)}s")
+            continue
+        # Código que já existia antes desta tela é de outra tentativa.
+        if _marco_da_tela and carimbo < _marco_da_tela - GRACA_ANTES_DA_TELA:
+            otp_flow.etapa("queue", "descartar_de_outra_tela", "stale",
+                           idade=f"{int(idade)}s")
+            continue
+        return codigo
+
+
+def _iniciar_watcher_gmail() -> None:
+    """Uma thread de leitura do Gmail por vez.
+
+    As flags eram locais da funcao: cada nova tentativa de login criava outra
+    thread, e as duas competiam pela mesma caixa (a primeira marca o e-mail
+    como lido e a segunda reporta "nao encontrei").
+    """
+    global _gmail_thread
+    if not _GMAIL_OTP:
+        return
+    if _gmail_thread is not None and _gmail_thread.is_alive():
+        return
+
+    _parar_gmail.clear()
+    inicio = time.time()
+
+    def _ler():
+        try:
+            otp_flow.etapa("gmail", "iniciar", "ok")
+            _status_queue.put({"type": "log", "msg": "🔍 Buscando o código no Gmail..."})
+            codigo = _gmail_otp.aguardar_otp(timeout=85, intervalo=5,
+                                             desde=inicio, parar=_parar_gmail)
+            if codigo:
+                enfileirar_codigo(codigo)
+                otp_flow.etapa("gmail", "encontrado", "ok",
+                               codigo=otp_flow._mascarar(codigo))
+                _status_queue.put({"type": "log", "msg": "✓ Código encontrado no Gmail."})
+            else:
+                otp_flow.etapa("gmail", "busca", "not_found")
+                _status_queue.put({"type": "log",
+                                   "msg": "⚠ Não achei o código no Gmail — digite à mão."})
+        except Exception as ex:
+            otp_flow.etapa("gmail", "erro", "error", erro=str(ex)[:120])
+            _status_queue.put({"type": "log", "msg": f"⚠ Erro ao ler o Gmail: {ex}"})
+
+    _gmail_thread = threading.Thread(target=_ler, daemon=True, name="gmail-otp-watcher")
+    _gmail_thread.start()
+
+
+def _avisar_que_precisa_de_codigo() -> None:
+    _status_queue.put({"type": "otp_needed"})
+    if _WINSOUND:
+        try:
+            for _ in range(3):
+                _winsound.Beep(1000, 400)
+                time.sleep(0.1)
+        except Exception:
+            pass
+
+
+def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
+    """Espera o portal pedir o código, usa o código que chegar, e conclui.
+
+    Cada volta faz três perguntas, nesta ordem: já entrei? a tela do código
+    apareceu? chegou código novo? Só então tenta preencher — e o código só sai
+    da fila quando existe uma tela para usá-lo, em vez de ser consumido e
+    perdido em qualquer desvio, como acontecia antes.
+
+    Devolve True só quando o portal aceitou o código (ou o login se resolveu
+    sozinho). Nada aqui declara sucesso por ter clicado num botão.
+    """
+    _aguardando_otp.clear()
+    otp_avisado = False
+    pendente = None
+    tentativas_do_codigo = 0
+    prazo = time.time() + prazo_segundos
+
+    # Foto das abas que JA' estavam logadas: uma aba velha esquecida em
+    # /logged-area/ fazia o bot declarar "logado" no primeiro segundo, sem
+    # nunca ter digitado o código.
+    ja_logadas = {id(p) for p in _paginas_logadas(ctx)}
+
+    def _entrou_agora():
+        for p in _paginas_logadas(ctx):
+            if id(p) not in ja_logadas:
+                return p
+        return None
+
+    try:
+        while time.time() < prazo:
+            if python_stop_event.is_set():
+                otp_flow.etapa("wait_code", "parar", "stop_event")
+                return False
+            time.sleep(1)
+
+            if _entrou_agora() is not None:
+                logger.info("Auto-login: CPF+senha OK")
+                otp_flow.etapa("login", "pos_credenciais", "ok")
+                _status_queue.put({"type": "login_ok"})
+                return True
+
+            alvo = otp_flow.localizar_campo(ctx)
+            if alvo is not None and not otp_avisado:
+                otp_avisado = True
+                _aguardando_otp.set()       # segura o fechador de abas
+                marcar_tela_de_codigo()     # corta códigos de tentativas anteriores
+                otp_flow.etapa("detect_screen", alvo.seletor, "ok",
+                               tipo=alvo.tipo, campos=alvo.quantidade)
+                _status_queue.put({"type": "log",
+                                   "msg": "🔐 O portal pediu o código de verificação."})
+                _avisar_que_precisa_de_codigo()
+                _iniciar_watcher_gmail()
+
+            novo = _proximo_codigo()
+            if novo:
+                pendente, tentativas_do_codigo = novo, 0
+            if not pendente:
+                continue
+            if alvo is None:
+                continue                    # guarda o código até a tela existir
+
+            tentativas_do_codigo += 1
+            resultado = otp_flow.preencher_otp(
+                ctx, pendente,
+                esta_logado=lambda: _entrou_agora() is not None,
+                tentativas=2)
+
+            if resultado.ok:
+                logger.info("Auto-login: código aceito")
+                _status_queue.put({"type": "log", "msg": "✓ Código aceito."})
+                _status_queue.put({"type": "login_ok"})
+                return True
+
+            # Não deu: o código só volta a ser tentado se ainda servir.
+            if resultado.reutilizavel and tentativas_do_codigo < 2:
+                _status_queue.put({"type": "log",
+                                   "msg": f"⚠ Não consegui usar o código ({resultado.desfecho}); tentando de novo."})
+                time.sleep(3)
+                continue
+
+            pendente = None
+            motivo = ("o portal recusou o código"
+                      if resultado.desfecho == "recusado"
+                      else f"falhei em {resultado.desfecho}")
+            _status_queue.put({"type": "log",
+                               "msg": f"✗ {motivo}. Digite o código novamente."})
+            if resultado.diagnostico:
+                _status_queue.put({"type": "log",
+                                   "msg": f"🛈 Diagnóstico salvo: {os.path.basename(resultado.diagnostico)}"})
+            _avisar_que_precisa_de_codigo()
+    finally:
+        _aguardando_otp.clear()
+        _parar_gmail.set()       # o watcher nao precisa mais ler a caixa
+
+    otp_flow.etapa("wait_code", "prazo", "timeout")
+    _status_queue.put({"type": "log",
+                       "msg": "⏰ O prazo do código acabou sem concluir o login."})
+    return False
+
 
 def tentar_login_automatico(page) -> bool:
     ctx = page.context
@@ -351,154 +668,9 @@ def tentar_login_automatico(page) -> bool:
             except Exception:
                 pass
 
-        otp_avisado = False
-        _gmail_thread_iniciado = False
-        for seg in range(90):
-            time.sleep(1)
-            if _encontrar_pagina_formulario(ctx) is not None:
-                logger.info("Auto-login: CPF+senha OK")
-                _status_queue.put({"type": "login_ok"})
-                return True
-
-            if not otp_avisado:
-                try:
-                    for p2 in ctx.pages:
-                        if p2.locator('input[maxlength="1"]').count() >= 4:
-                            otp_avisado = True
-                            _status_queue.put({"type": "otp_needed"})
-                            if _WINSOUND:
-                                for _ in range(3):
-                                    _winsound.Beep(1000, 400)
-                                    time.sleep(0.1)
-                            break
-                except Exception:
-                    pass
-
-            # Assim que a tela OTP aparece, dispara thread que lê o Gmail automaticamente
-            if otp_avisado and not _gmail_thread_iniciado and _GMAIL_OTP:
-                _gmail_thread_iniciado = True
-                def _gmail_watcher():
-                    try:
-                        logger.info("gmail_otp: thread iniciada, aguardando código no Gmail...")
-                        _status_queue.put({"type": "log", "msg": "🔍 Buscando OTP no Gmail automaticamente..."})
-                        codigo = _gmail_otp.aguardar_otp(timeout=85, intervalo=5)
-                        if codigo:
-                            _otp_queue.put(codigo)
-                            logger.info(f"gmail_otp: código {codigo} enviado para a fila.")
-                            _status_queue.put({"type": "log", "msg": f"✓ OTP detectado automaticamente: {codigo}"})
-                        else:
-                            _status_queue.put({"type": "log", "msg": "⚠ OTP não encontrado no Gmail — digite manualmente."})
-                    except Exception as ex:
-                        logger.warning(f"gmail_otp watcher: {ex}")
-                        _status_queue.put({"type": "log", "msg": f"⚠ Erro ao ler Gmail: {ex}"})
-                threading.Thread(target=_gmail_watcher, daemon=True, name="gmail-otp-watcher").start()
-
-            try:
-                otp_code = _otp_queue.get_nowait()
-            except _queue_mod.Empty:
-                continue
-
-            # --- Etapa 1: Garantir que estamos na tela de OTP correta ---
-            otp_page = _find_otp_page(ctx)
-            if otp_page is None:
-                logger.warning("CODE_FLOW: tela de OTP nao encontrada, tentando recuperar...")
-                _status_queue.put({"type": "log", "msg": "⚠ Tela OTP nao encontrada — tentando recuperar..."})
-                # Tenta reencontrar a página de login/formulário
-                if not _encontrar_pagina_formulario(ctx):
-                    logger.warning("CODE_FLOW: nao foi possivel encontrar formulario")
-                    continue
-                otp_page = _find_otp_page(ctx)
-                if otp_page is None:
-                    continue
-
-            # --- Etapa 2: Localizar campos de código ---
-            inputs1 = otp_page.locator('input[maxlength="1"]')
-            inputs6 = otp_page.locator('input[maxlength="6"]')
-            code_field = None
-            num_single = inputs1.count()
-
-            if num_single >= 4:
-                code_field = ("single", inputs1)
-            elif inputs6.count() > 0:
-                code_field = ("six_digit", inputs6)
-            else:
-                logger.warning("CODE_FLOW: nenhum campo OTP encontrado na tela atual")
-                _status_queue.put({"type": "log", "msg": "⚠ Nenhum campo OTP encontrado na tela."})
-                continue
-
-            # --- Etapa 3: Focar o campo antes de escrever ---
-            try:
-                if code_field[0] == "single":
-                    # Focar cada input individualmente
-                    for i in range(min(num_single, len(otp_code))):
-                        code_field[1].nth(i).focus()
-                        time.sleep(0.1)
-                else:
-                    code_field[1].first.focus()
-                time.sleep(0.3)
-            except Exception as e:
-                logger.warning(f"CODE_FLOW: erro ao focar campo: {e}")
-
-            # --- Etapa 4: Inserir o código ---
-            try:
-                if code_field[0] == "single":
-                    for i, ch in enumerate(otp_code[:num_single]):
-                        code_field[1].nth(i).fill(ch)
-                else:
-                    code_field[1].first.fill(otp_code)
-            except Exception as e:
-                logger.warning(f"CODE_FLOW: erro ao inserir codigo: {e}")
-                _status_queue.put({"type": "log", "msg": f"⚠ Erro ao inserir OTP: {e}"})
-                continue
-
-            # --- Etapa 5: Verificar se código foi inserido ---
-            if not _verificar_codigo_inserido(otp_page, code_field, otp_code):
-                # Se falhar primeira tentativa, tentar novamente (máx 2 tentativas)
-                logger.info("CODE_FLOW: primeira tentativa falhou, tentando novamente...")
-                try:
-                    if code_field[0] == "single":
-                        for i, ch in enumerate(otp_code[:num_single]):
-                            code_field[1].nth(i).fill(ch)
-                    else:
-                        code_field[1].first.fill(otp_code)
-
-                    if not _verificar_codigo_inserido(otp_page, code_field, otp_code):
-                        logger.error("CODE_FLOW: falha inserir codigo apos 2 tentativas")
-                        _status_queue.put({"type": "log", "msg": "✗ Falha ao inserir OTP depois de 2 tentativas."})
-                        continue
-                except Exception as e2:
-                    logger.error(f"CODE_FLOW: erro na tentativa secundaria: {e2}")
-                    _status_queue.put({"type": "log", "msg": f"✗ Erro secundario: {e2}"})
-                    continue
-
-            # --- Etapa 6: Confirmar código ---
-            try:
-                clicked = False
-                for sel2 in ['button[type="submit"]', 'button:has-text("Confirmar")',
-                             'button:has-text("Verificar")', 'button:has-text("Entrar")']:
-                    b = otp_page.locator(sel2).first
-                    if b.is_visible(timeout=500):
-                        b.click()
-                        clicked = True
-                        logger.info("CODE_FLOW: botao de confirmacao clicado")
-                        break
-                if not clicked:
-                    logger.warning("CODE_FLOW: nenhum botao de confirmacao encontrado/visivel")
-                    _status_queue.put({"type": "log", "msg": "⚠ Nenhum botao de confirmacao encontrado."})
-                    continue
-            except Exception as e:
-                logger.warning(f"CODE_FLOW: erro ao clicar botao confirmar: {e}")
-                _status_queue.put({"type": "log", "msg": f"⚠ Erro ao confirmar OTP: {e}"})
-                continue
-
-            # --- Etapa 7: Pequena espera para tela estabilizar ---
-            time.sleep(2)
-
-            logger.info(f"CODE_FLOW: OTP {otp_code} processado com sucesso")
-            _status_queue.put({"type": "log", "msg": f"✓ OTP {otp_code} inserido e confirmado."})
-
-            break
-
+        # O portal pode pedir o código de verificação agora.
+        if aguardar_codigo_e_entrar(ctx):
+            return True
         return False
     except Exception as e:
         logger.warning(f"Auto-login CPF: {e}")
@@ -539,28 +711,64 @@ def aguardar_relogin(page):
         pass
 
     if tentar_login_automatico(page):
-        found = _encontrar_pagina_formulario(ctx)
+        found = _formulario_apos_login(ctx)
         if found is not None:
             return found
 
     for segundo in range(7200):
+        if python_stop_event.is_set():
+            logger.info("Relogin interrompido pelo botão Parar.")
+            return None
         if segundo % 5 == 0:
-            found = _encontrar_pagina_formulario(ctx)
+            found = _formulario_apos_login(ctx, navegar=False)
             if found is not None:
+                logger.info("Sessão recuperada (o portal voltou sozinho).")
+                _status_queue.put({"type": "login_ok"})
                 return found
         if segundo > 0 and segundo % 300 == 0:
+            # Sem esta linha, o log ficava horas em silêncio e não dava para
+            # saber se o bot estava vivo (há 39h assim no bot_log.txt).
+            logger.info(f"Relogin: ainda tentando ({segundo // 60} min).")
             try:
+                if page.is_closed():
+                    page = ctx.new_page()
+                    _aplicar_stealth(page)
                 page.goto(URL_LANDING, wait_until="domcontentloaded", timeout=15_000)
                 time.sleep(2)
                 if tentar_login_automatico(page):
-                    found = _encontrar_pagina_formulario(ctx)
+                    found = _formulario_apos_login(ctx)
                     if found is not None:
                         return found
-            except Exception:
-                pass
+                found = _formulario_apos_login(ctx)   # logado? leva ao formulário
+                if found is not None:
+                    return found
+            except Exception as e:
+                logger.warning(f"Relogin: falha ao voltar para a landing: {e}")
         time.sleep(1)
 
     return None
+
+
+def _formulario_apos_login(ctx, navegar: bool = True):
+    """A página do formulário, aceitando que o portal pare na home.
+
+    Depois do login o portal fica em `/logged-area/home`; o critério antigo
+    (URL com `recommendation`) dizia "não logou" e o bot girava no laço de 2h
+    estando logado. Com `navegar=False` a função só CONSULTA — importante no
+    laço de 5 em 5 segundos, que senão martelaria o site com um goto por volta.
+    """
+    found = _encontrar_pagina_formulario(ctx)
+    if found is not None:
+        return found
+    logada = _pagina_logada(ctx)
+    if logada is None or not navegar:
+        return None
+    try:
+        logada.goto(URL_FORMULARIO, wait_until="domcontentloaded", timeout=15_000)
+        time.sleep(2)
+    except Exception as e:
+        logger.warning(f"Relogin: logado, mas falhei ao abrir o formulário: {e}")
+    return _encontrar_pagina_formulario(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -817,12 +1025,9 @@ def clicar_simular_consignado(page):
     _pausa()
     time.sleep(1)
 
-    for extra in page.context.pages:
-        if extra is not page:
-            try:
-                extra.close()
-            except Exception:
-                pass
+    # Fechava TODAS as outras abas sem olhar a URL — inclusive uma aba de
+    # login/código aberta pelo portal nesse instante.
+    _fechar_abas_extras(page.context, page)
 
     if "consorcio" in page.url.lower():
         page.go_back()
@@ -1265,77 +1470,6 @@ def _eh_valor_moeda(v: str) -> bool:
     """True só se o texto tem cara de dinheiro (centavos, ex.: '-R$ 188,76', 'R$ 0,04').
     Serve para NÃO confundir a margem com a Matrícula (inteiro puro, ex.: '909801')."""
     return bool(re.search(r'\d,\d{2}', v or ""))
-
-
-def _find_otp_page(ctx) -> object:
-    """
-    Tenta encontrar a página de verificação de OTP.
-    Procura por seletores característicos da tela OTP do WhatsApp Web.
-    Retorna a página ou None se não encontrar.
-    """
-    try:
-        # Estratégia 1: Procurar por inputs de OTP (maxlength="1" ou "6")
-        for p in ctx.pages:
-            try:
-                inputs1 = p.locator('input[maxlength="1"]')
-                inputs6 = p.locator('input[maxlength="6"]')
-                if inputs1.count() >= 4 or inputs6.count() > 0:
-                    # Verifica se a URL indica tela de login/verificação
-                    url = p.url.lower()
-                    if any(k in url for k in ["login", "auth", "verific", "code", "otp"]):
-                        logger.debug(f"_find_otp_page: encontrou tela OTP em {url}")
-                        return p
-            except Exception:
-                continue
-
-        # Estratégia 2: Se já estamos no formulário mas apareceu tela OTP
-        for p in ctx.pages:
-            try:
-                if p.locator('input[maxlength="1"]').count() >= 4:
-                    return p
-            except Exception:
-                continue
-
-        return None
-    except Exception as e:
-        logger.warning(f"_find_otp_page: erro geral: {e}")
-        return None
-
-
-def _verificar_codigo_inserido(otp_page, code_field: tuple, otp_code: str) -> bool:
-    """
-    Verifica se o código foi realmente inserido no campo.
-    Tenta ler o valor dos inputs e compara com o código esperado.
-    """
-    try:
-        if code_field[0] == "single":
-            # Ler valores dos inputs de um dígito cada
-            valores = []
-            for i in range(code_field[1].count()):
-                try:
-                    val = code_field[1].nth(i).input_value() or ""
-                    valores.append(val.strip())
-                except Exception:
-                    valores.append("")
-            # O código foi inserido se todos os inputs têm conteúdo
-            # e o concatenado corresponde (ou parcialmente) ao código
-            concat = "".join(valores)
-            if concat and len(concat) > 0:
-                # Pode ser que tenha sido inserido parcialmente ou totalmente
-                return True
-            return False
-        else:
-            # Campo único de 6 dígitos
-            try:
-                val = code_field[1].first.input_value() or ""
-                # Verificar se o valor contém os dígitos do código
-                # O fill() do Playwright pode deixar o valor limpo
-                return len(val.strip()) > 0
-            except Exception:
-                return False
-    except Exception as e:
-        logger.warning(f"_verificar_codigo_inserido: erro ao verificar: {e}")
-        return False
 
 
 def _capturar_margem(page) -> str:
@@ -2029,19 +2163,45 @@ def voltar_ao_formulario(page):
             pass
 
 
+# Aba que pode ser do portal/login. Estava escrita em dois lugares com listas
+# diferentes; qualquer domínio do Santander (id., sso., ...) agora conta, e
+# `about:blank` também — popup recém-aberto ainda não navegou, e fechá-lo era
+# fechar a própria tela do código.
+_ABAS_DE_LOGIN = ("openid", "/login", "corp/protocol", "keycloak", "/auth?",
+                  "id.santander", "sso.santander", "verific")
+
+
+def _aba_protegida(url: str, esperando_codigo: bool = False) -> bool:
+    """Aba que não pode ser fechada.
+
+    Tela de login/código nunca fecha. `about:blank` e duplicata do portal só
+    são poupadas enquanto o código é esperado — fora disso elas voltam a ser
+    recolhidas, como antes, para não acumular aba ao longo de centenas de
+    clientes (e para não sobrar aba velha em /logged-area/).
+    """
+    url = (url or "").lower().strip()
+    if any(k in url for k in _ABAS_DE_LOGIN):
+        return True
+    if esperando_codigo:
+        return True          # na dúvida, durante o código não se fecha nada
+    return False
+
+
 def _fechar_abas_extras(ctx, page_principal):
+    # Enquanto o portal espera o código, nenhuma aba é fechada: a tela do
+    # código costuma vir em popup e era morta antes de ser usada.
+    esperando = _aguardando_otp.is_set()
+    if esperando:
+        return
     for p in list(ctx.pages):
         if p is page_principal:
             continue
         try:
-            url = p.url.lower()
-            if any(k in url for k in ["openid", "/login", "corp/protocol",
-                                       "keycloak", "/auth?", "recommendation",
-                                       "parceirosantander", "landing"]):
+            if _aba_protegida(_url_real(p), esperando):
                 continue
             p.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"nao consegui fechar aba extra: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -2280,16 +2440,30 @@ def main_gui():
 
         def _auto_fechar_aba(nova_aba):
             _aplicar_stealth(nova_aba)
+
             def _checar():
-                time.sleep(1.5)
-                try:
-                    url = nova_aba.url.lower()
-                    if not any(k in url for k in ["openid", "/login", "corp/protocol",
-                                                   "keycloak", "/auth?", "recommendation",
-                                                   "parceirosantander", "landing"]):
-                        nova_aba.close()
-                except Exception:
-                    pass
+                # Espera a aba PARAR de ser about:blank antes de julgar. Com
+                # um sleep único de 1,5s, uma aba legítima que ainda estava
+                # navegando era fechada — inclusive a do código.
+                for _ in range(16):          # até ~8s
+                    time.sleep(0.5)
+                    if _aguardando_otp.is_set():
+                        return
+                    try:
+                        if nova_aba.is_closed():
+                            return
+                        url = (nova_aba.url or "").lower()
+                    except Exception:
+                        return
+                    if url and url != "about:blank":
+                        if _aba_protegida(url, _aguardando_otp.is_set()):
+                            return
+                        try:
+                            nova_aba.close()
+                        except Exception as e:
+                            logger.debug(f"nao consegui fechar aba nova: {e}")
+                        return
+
             threading.Thread(target=_checar, daemon=True).start()
 
         ctx.on("page", _auto_fechar_aba)

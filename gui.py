@@ -4,14 +4,16 @@ gui.py — Bot Refinanciamento Consignado — Dark UI (v2, repaginada)
 
 from __future__ import annotations
 
+import configparser
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
 from datetime import datetime
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import bot
 
@@ -73,6 +75,19 @@ def _open_path(path: str):
             subprocess.Popen(["xdg-open", path])
     except Exception:
         pass
+
+
+def _pasta_bot() -> str:
+    """Pasta onde o bot.py mora — nunca o diretório atual."""
+    try:
+        return os.path.dirname(os.path.abspath(bot.__file__))
+    except Exception:
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+def _arq_bot(nome: str) -> str:
+    """Caminho de um arquivo dentro da pasta do bot."""
+    return os.path.join(_pasta_bot(), nome)
 
 
 # ═══════════════════════════ WIDGETS BASE ═════════════════════════════════════
@@ -167,6 +182,10 @@ class BotGUI:
 
         self._otp_vars:    list[tk.StringVar] = [tk.StringVar() for _ in range(6)]
         self._otp_entries: list[tk.Entry]     = []
+
+        # aba Configurações
+        self._gmail_ocupado = False
+        self._gmail_thread  = None
 
         self._build()
         self._tick_dot()
@@ -369,6 +388,10 @@ class BotGUI:
         {"Painel": self._painel,
          "Resultados": self._resultados,
          "Configurações": self._config_tab}[name].pack(fill="both", expand=True)
+        if name == "Configurações":
+            # os arquivos podem ter mudado por fora — relê o estado
+            self._cfg_atualizar_acesso()
+            self._cfg_atualizar_gmail()
 
     def _build_painel(self):
         f = tk.Frame(self._content, bg=MN)
@@ -487,19 +510,384 @@ class BotGUI:
                 bg=CD, hover=CD2, fg=WHT, height=40,
                 radius=10, parent_bg=MN).pack(ipadx=40)
 
+    # ─────────────────────────── CONFIGURAÇÕES ───────────────────────────────
     def _build_config(self):
         f = tk.Frame(self._content, bg=MN)
         self._config_tab = f
 
-        wrap = tk.Frame(f, bg=MN)
-        wrap.pack(expand=True)
-        tk.Label(wrap, text="⚙", bg=MN, fg=GRY,
-                 font=(FONT + " Emoji", 32)).pack(pady=(0, 8))
-        tk.Label(wrap, text="Configurações",
-                 bg=MN, fg=WHT, font=(FONT, 13, "bold")).pack()
-        tk.Label(wrap,
-                 text="Defina BASE_URL e CLIENTES_CSV no arquivo bot.py",
-                 bg=MN, fg=GRY, font=(FONT, 10)).pack(pady=(4, 0))
+        # rolagem — as três caixas não cabem em tela baixa
+        cv = tk.Canvas(f, bg=MN, bd=0, highlightthickness=0)
+        vsb = tk.Scrollbar(f, command=cv.yview,
+                           width=10, bg=MN, troughcolor=MN,
+                           activebackground=BDR, relief="flat", bd=0,
+                           highlightthickness=0)
+        cv.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+
+        inner = tk.Frame(cv, bg=MN)
+        win = cv.create_window(0, 0, anchor="nw", window=inner)
+        cv.bind("<Configure>", lambda ev: cv.itemconfigure(win, width=ev.width))
+        inner.bind("<Configure>",
+                   lambda ev: cv.configure(scrollregion=cv.bbox("all")))
+
+        def _roda(ev):
+            cv.yview_scroll(int(-ev.delta / 120), "units")
+
+        cv.bind("<Enter>", lambda ev: cv.bind_all("<MouseWheel>", _roda))
+        cv.bind("<Leave>", lambda ev: cv.unbind_all("<MouseWheel>"))
+
+        self._cfg_acesso(inner)
+        self._cfg_navegador(inner)
+        self._cfg_gmail(inner)
+
+        self._cfg_carregar_navegador()
+        self._cfg_atualizar_acesso()
+        self._cfg_atualizar_gmail()
+
+    def _cfg_titulo(self, p, texto: str, sub: str = ""):
+        tk.Label(p, text=texto, bg=CD, fg=WHT,
+                 font=(FONT, 11, "bold"), anchor="w").pack(fill="x")
+        if sub:
+            tk.Label(p, text=sub, bg=CD, fg=GRY,
+                     font=(FONT, 9), anchor="w",
+                     justify="left").pack(fill="x", pady=(2, 0))
+
+    def _cfg_entry(self, p, var: tk.StringVar, show: str = "") -> tk.Entry:
+        return tk.Entry(p, textvariable=var,
+                        font=(FONT, 10), bg=IP, fg=WHT,
+                        insertbackground=R, relief="flat", bd=0,
+                        highlightthickness=1,
+                        highlightbackground=BDR, highlightcolor=R,
+                        show=show)
+
+    def _cfg_campo(self, p, rotulo: str, var: tk.StringVar, show: str = ""):
+        tk.Label(p, text=rotulo, bg=CD, fg=GRY,
+                 font=(FONT, 9), anchor="w").pack(fill="x", pady=(8, 2))
+        e = self._cfg_entry(p, var, show)
+        e.pack(fill="x", ipady=5)
+        return e
+
+    def _cfg_campo_caminho(self, p, rotulo: str, var: tk.StringVar, procurar):
+        tk.Label(p, text=rotulo, bg=CD, fg=GRY,
+                 font=(FONT, 9), anchor="w").pack(fill="x", pady=(8, 2))
+        row = tk.Frame(p, bg=CD)
+        row.pack(fill="x")
+        b = RButton(row, text="Procurar…", command=procurar,
+                    bg=CD2, hover=BDR, fg=WHT, height=30, radius=8,
+                    font=(FONT, 9), parent_bg=CD)
+        b.configure(width=96)
+        b.pack(side="right", padx=(8, 0))
+        self._cfg_entry(row, var).pack(side="left", fill="x", expand=True,
+                                       ipady=5)
+
+    # ── Bloco 1 — acesso ao portal ────────────────────────────────────────────
+    def _cfg_acesso(self, p):
+        self._cfg_cpf_var   = tk.StringVar()
+        self._cfg_senha_var = tk.StringVar()
+
+        card = RCard(p, bg=CD, radius=16, pad=16, height=296, parent_bg=MN)
+        card.pack(fill="x", padx=16, pady=(16, 0))
+        b = card.body
+
+        self._cfg_titulo(b, "Acesso ao portal (Santander)")
+
+        lin = tk.Frame(b, bg=CD)
+        lin.pack(fill="x", pady=(6, 0))
+        self._cfg_lbl_cpf = tk.Label(lin, text="CPF definido: —", bg=CD,
+                                     fg=GRY, font=(FONT, 9))
+        self._cfg_lbl_cpf.pack(side="left")
+        self._cfg_lbl_senha = tk.Label(lin, text="Senha definida: —", bg=CD,
+                                       fg=GRY, font=(FONT, 9))
+        self._cfg_lbl_senha.pack(side="left", padx=(18, 0))
+
+        self._cfg_campo(b, "CPF", self._cfg_cpf_var)
+        self._cfg_campo(b, "Senha", self._cfg_senha_var, show="•")
+
+        RButton(b, text="Salvar acesso", command=self._cfg_salvar_acesso,
+                bg=R, hover=R_HI, fg=WHT, height=34, radius=9,
+                font=(FONT, 10, "bold"), parent_bg=CD).pack(fill="x",
+                                                            pady=(12, 0))
+
+        tk.Label(b, text="Deixe a senha em branco para manter a que já está salva.",
+                 bg=CD, fg=GRY2, font=(FONT, 8),
+                 anchor="w").pack(fill="x", pady=(6, 0))
+
+    def _cfg_ler_acesso(self) -> tuple[bool, bool]:
+        """Só o estado (preenchido ou não) — o valor nunca sai do arquivo."""
+        cfg = configparser.ConfigParser(interpolation=None)
+        try:
+            cfg.read(_arq_bot("credenciais.ini"), encoding="utf-8")
+            cpf   = cfg.get("acesso", "cpf",   fallback="").strip()
+            senha = cfg.get("acesso", "senha", fallback="").strip()
+        except Exception:
+            return False, False
+        return bool(cpf), bool(senha)
+
+    def _cfg_atualizar_acesso(self):
+        tem_cpf, tem_senha = self._cfg_ler_acesso()
+        self._cfg_lbl_cpf.config(
+            text=f"CPF definido: {'sim' if tem_cpf else 'não'}",
+            fg=GRN if tem_cpf else GRY)
+        self._cfg_lbl_senha.config(
+            text=f"Senha definida: {'sim' if tem_senha else 'não'}",
+            fg=GRN if tem_senha else GRY)
+
+    def _cfg_salvar_acesso(self):
+        cpf   = self._cfg_cpf_var.get().strip()
+        senha = self._cfg_senha_var.get().strip()
+        if not (cpf or senha):
+            self._ilog("Preencha CPF ou senha antes de salvar.")
+            return
+
+        caminho = _arq_bot("credenciais.ini")
+        cfg = configparser.ConfigParser(interpolation=None)
+        try:
+            cfg.read(caminho, encoding="utf-8")
+        except Exception:
+            pass
+        if not cfg.has_section("acesso"):
+            cfg.add_section("acesso")
+        if cpf:
+            cfg.set("acesso", "cpf", cpf)
+        if senha:
+            cfg.set("acesso", "senha", senha)
+
+        try:
+            with open(caminho, "w", encoding="utf-8") as fh:
+                cfg.write(fh)
+        except OSError as e:
+            self._ilog(f"Não deu para salvar o acesso: {e}")
+            return
+
+        getattr(bot, "recarregar_credenciais", lambda: None)()
+        self._cfg_cpf_var.set("")
+        self._cfg_senha_var.set("")
+        self._cfg_atualizar_acesso()
+        self._ilog("Acesso salvo.")
+
+    # ── Bloco 2 — navegador ───────────────────────────────────────────────────
+    def _cfg_navegador(self, p):
+        self._cfg_exe_var    = tk.StringVar()
+        self._cfg_perfil_var = tk.StringVar()
+
+        card = RCard(p, bg=CD, radius=16, pad=16, height=282, parent_bg=MN)
+        card.pack(fill="x", padx=16, pady=(14, 0))
+        b = card.body
+
+        self._cfg_titulo(
+            b, "Navegador",
+            "Feche o navegador antes de iniciar o bot — o perfil fica travado "
+            "por um processo só.")
+
+        self._cfg_campo_caminho(b, "Executável do navegador",
+                                self._cfg_exe_var, self._cfg_procurar_exe)
+        self._cfg_campo_caminho(b, "Pasta de perfil",
+                                self._cfg_perfil_var, self._cfg_procurar_perfil)
+
+        row = tk.Frame(b, bg=CD)
+        row.pack(fill="x", pady=(14, 0))
+        bd = RButton(row, text="Detectar", command=self._cfg_detectar,
+                     bg=CD2, hover=BDR, fg=WHT, height=34, radius=9,
+                     font=(FONT, 10, "bold"), parent_bg=CD)
+        bd.configure(width=130)
+        bd.pack(side="left", padx=(0, 8))
+        RButton(row, text="Salvar navegador", command=self._cfg_salvar_navegador,
+                bg=R, hover=R_HI, fg=WHT, height=34, radius=9,
+                font=(FONT, 10, "bold"), parent_bg=CD).pack(side="left",
+                                                            fill="x",
+                                                            expand=True)
+
+    def _cfg_procurar_exe(self):
+        atual = self._cfg_exe_var.get().strip()
+        ini = os.path.dirname(atual) if atual else os.environ.get("ProgramFiles", "")
+        caminho = filedialog.askopenfilename(
+            parent=self.root, title="Executável do navegador",
+            initialdir=ini or None,
+            filetypes=[("Programa", "*.exe"), ("Todos", "*.*")])
+        if caminho:
+            self._cfg_exe_var.set(os.path.normpath(caminho))
+
+    def _cfg_procurar_perfil(self):
+        atual = self._cfg_perfil_var.get().strip()
+        caminho = filedialog.askdirectory(
+            parent=self.root, title="Pasta de perfil do navegador",
+            initialdir=atual or os.environ.get("LOCALAPPDATA", "") or None)
+        if caminho:
+            self._cfg_perfil_var.set(os.path.normpath(caminho))
+
+    def _cfg_detectar(self):
+        pf   = os.environ.get("ProgramFiles",      r"C:\Program Files")
+        pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        la   = os.environ.get("LOCALAPPDATA",      "")
+
+        brave  = os.path.join(la, r"BraveSoftware\Brave-Browser\User Data")
+        chrome = os.path.join(la, r"Google\Chrome\User Data")
+        edge   = os.path.join(la, r"Microsoft\Edge\User Data")
+
+        candidatos = [
+            (os.path.join(pf,   r"BraveSoftware\Brave-Browser\Application\brave.exe"), brave),
+            (os.path.join(pf86, r"BraveSoftware\Brave-Browser\Application\brave.exe"), brave),
+            (os.path.join(la,   r"BraveSoftware\Brave-Browser\Application\brave.exe"), brave),
+            (os.path.join(pf,   r"Google\Chrome\Application\chrome.exe"), chrome),
+            (os.path.join(pf86, r"Google\Chrome\Application\chrome.exe"), chrome),
+            (os.path.join(la,   r"Google\Chrome\Application\chrome.exe"), chrome),
+            (os.path.join(pf86, r"Microsoft\Edge\Application\msedge.exe"), edge),
+        ]
+
+        for exe, perfil in candidatos:
+            try:
+                existe = os.path.exists(exe)
+            except Exception:
+                existe = False
+            if existe:
+                self._cfg_exe_var.set(os.path.normpath(exe))
+                self._cfg_perfil_var.set(os.path.normpath(perfil))
+                self._ilog(f"Navegador encontrado: {os.path.basename(exe)}")
+                return
+
+        self._ilog("Nenhum navegador encontrado nos caminhos usuais — "
+                   "aponte o executável à mão.")
+
+    def _cfg_carregar_navegador(self):
+        cfg = configparser.ConfigParser(interpolation=None)
+        try:
+            cfg.read(_arq_bot("config.ini"), encoding="utf-8")
+            self._cfg_exe_var.set(cfg.get("navegador", "executavel", fallback="").strip())
+            self._cfg_perfil_var.set(cfg.get("navegador", "perfil", fallback="").strip())
+        except Exception:
+            pass
+
+    def _cfg_salvar_navegador(self):
+        exe    = self._cfg_exe_var.get().strip()
+        perfil = self._cfg_perfil_var.get().strip()
+
+        caminho = _arq_bot("config.ini")
+        cfg = configparser.ConfigParser(interpolation=None)
+        try:
+            cfg.read(caminho, encoding="utf-8")
+        except Exception:
+            pass
+        if not cfg.has_section("navegador"):
+            cfg.add_section("navegador")
+        cfg.set("navegador", "executavel", exe)
+        cfg.set("navegador", "perfil", perfil)
+
+        try:
+            with open(caminho, "w", encoding="utf-8") as fh:
+                cfg.write(fh)
+        except OSError as e:
+            self._ilog(f"Não deu para salvar o navegador: {e}")
+            return
+
+        getattr(bot, "recarregar_config", lambda: None)()
+        self._ilog("Navegador salvo.")
+
+    # ── Bloco 3 — código automático pelo Gmail ────────────────────────────────
+    def _cfg_gmail(self, p):
+        card = RCard(p, bg=CD, radius=16, pad=16, height=262, parent_bg=MN)
+        card.pack(fill="x", padx=16, pady=(14, 16))
+        b = card.body
+
+        self._cfg_titulo(
+            b, "Código automático pelo Gmail",
+            "Opcional. Sem isso o código de 6 dígitos é digitado à mão na barra "
+            "ao lado, a cada login.")
+
+        self._cfg_lbl_cred = tk.Label(b, text="credentials.json: —", bg=CD,
+                                      fg=GRY, font=(FONT, 9), anchor="w")
+        self._cfg_lbl_cred.pack(fill="x", pady=(10, 0))
+        self._cfg_lbl_token = tk.Label(b, text="token_gmail.json: —", bg=CD,
+                                       fg=GRY, font=(FONT, 9), anchor="w")
+        self._cfg_lbl_token.pack(fill="x", pady=(2, 0))
+
+        row = tk.Frame(b, bg=CD)
+        row.pack(fill="x", pady=(14, 0))
+        bc = RButton(row, text="Selecionar credentials.json…",
+                     command=self._cfg_selecionar_credentials,
+                     bg=CD2, hover=BDR, fg=WHT, height=34, radius=9,
+                     font=(FONT, 10, "bold"), parent_bg=CD)
+        bc.configure(width=232)
+        bc.pack(side="left", padx=(0, 8))
+        self._btn_gmail = RButton(row, text="Autorizar Gmail",
+                                  command=self._cfg_autorizar_gmail,
+                                  bg=R, hover=R_HI, fg=WHT, height=34, radius=9,
+                                  font=(FONT, 10, "bold"), parent_bg=CD)
+        self._btn_gmail.pack(side="left", fill="x", expand=True)
+
+        RButton(b, text="Abrir tutorial", command=self._cfg_abrir_tutorial,
+                bg=CD2, hover=BDR, fg=GRY, height=30, radius=8,
+                font=(FONT, 9), parent_bg=CD).pack(fill="x", pady=(8, 0))
+
+    def _cfg_atualizar_gmail(self):
+        tem_cred  = os.path.exists(_arq_bot("credentials.json"))
+        tem_token = os.path.exists(_arq_bot("token_gmail.json"))
+        self._cfg_lbl_cred.config(
+            text=f"credentials.json: {'encontrado' if tem_cred else 'não encontrado'}",
+            fg=GRN if tem_cred else GRY)
+        self._cfg_lbl_token.config(
+            text=f"token_gmail.json: {'autorizado' if tem_token else 'não autorizado'}",
+            fg=GRN if tem_token else GRY)
+
+    def _cfg_selecionar_credentials(self):
+        origem = filedialog.askopenfilename(
+            parent=self.root, title="Selecione o credentials.json",
+            filetypes=[("JSON", "*.json"), ("Todos", "*.*")])
+        if not origem:
+            return
+        destino = _arq_bot("credentials.json")
+        try:
+            if os.path.abspath(origem) != os.path.abspath(destino):
+                shutil.copy2(origem, destino)
+        except (OSError, shutil.Error) as e:
+            self._ilog(f"Não deu para copiar o credentials.json: {e}")
+            return
+        self._cfg_atualizar_gmail()
+        self._ilog("credentials.json salvo na pasta do bot.")
+
+    def _cfg_autorizar_gmail(self):
+        if self._gmail_ocupado:
+            return
+        if not os.path.exists(_arq_bot("credentials.json")):
+            self._ilog("Selecione o credentials.json antes de autorizar.")
+            return
+
+        self._gmail_ocupado = True
+        self._btn_gmail.set(text="Abrindo o navegador…", bg=CD2, hover=CD2,
+                            fg=GRY)
+
+        def tarefa():
+            erro = None
+            try:
+                import gmail_otp
+                gmail_otp._get_service()
+            except Exception as e:
+                erro = str(e).strip() or e.__class__.__name__
+            try:
+                # volta para a thread da GUI — só ela mexe em widget
+                self.root.after(0, lambda: self._cfg_gmail_fim(erro))
+            except Exception:
+                # janela fechada no meio da autorização — não há o que atualizar
+                self._gmail_ocupado = False
+
+        self._gmail_thread = threading.Thread(target=tarefa, daemon=True)
+        self._gmail_thread.start()
+
+    def _cfg_gmail_fim(self, erro: str | None):
+        self._gmail_ocupado = False
+        self._btn_gmail.set(text="Autorizar Gmail", bg=R, hover=R_HI, fg=WHT)
+        self._cfg_atualizar_gmail()
+        if erro:
+            self._ilog(f"Gmail não autorizado: {erro[:200]}")
+        else:
+            self._ilog("Gmail autorizado.")
+
+    def _cfg_abrir_tutorial(self):
+        caminho = _arq_bot("TUTORIAL-GMAIL.md")
+        if not os.path.exists(caminho):
+            self._ilog("TUTORIAL-GMAIL.md não está na pasta do bot.")
+            return
+        _open_path(caminho)
 
     # ═══════════════════════════ AÇÕES ════════════════════════════════════════
     def _primary(self):
@@ -515,7 +903,7 @@ class BotGUI:
             return
         bot.python_stop_event.clear()
         bot._start_event.clear()
-        bot._otp_queue.queue.clear()
+        getattr(bot, "_drenar_fila_otp", lambda: bot._otp_queue.queue.clear())()
         if hasattr(bot, "_pause_event"):
             bot._pause_event.clear()
 
@@ -563,12 +951,29 @@ class BotGUI:
 
     def _send_otp(self):
         code = "".join(v.get() for v in self._otp_vars).strip()
-        if not code:
+        if not (code.isdigit() and len(code) == 6):
+            self._ilog("Código precisa ter 6 dígitos.")
+            self._otp_focar_vazio()
             return
-        bot._otp_queue.put(code)
+        getattr(bot, "enfileirar_codigo", bot._otp_queue.put)(code)
+        self._otp_limpar()
+        self._ilog(f"OTP enviado: {code[:2]}••••")
+
+    def _otp_limpar(self):
+        """Zera as seis caixas e volta o foco para a primeira."""
         for v in self._otp_vars:
             v.set("")
-        self._ilog(f"OTP enviado: {code}")
+        if self._otp_entries:
+            self._otp_entries[0].focus()
+
+    def _otp_focar_vazio(self):
+        """Foco na primeira caixa vazia (ou na primeira, se todas cheias)."""
+        for e, v in zip(self._otp_entries, self._otp_vars):
+            if not v.get().strip():
+                e.focus()
+                return
+        if self._otp_entries:
+            self._otp_entries[0].focus()
 
     def _otp_key(self, ev, i: int):
         if self._otp_vars[i].get() and i < 5:
@@ -655,8 +1060,8 @@ class BotGUI:
         elif t == "otp_needed":
             self._set_status("Aguardando OTP", True)
             self._log_client("!", "err", "OTP solicitado — insira ao lado.", "", "info")
-            if self._otp_entries:
-                self._otp_entries[0].focus()
+            # pode vir de novo quando a tentativa anterior falhou — limpa p/ redigitar
+            self._otp_limpar()
 
         elif t == "login_ok":
             bot._start_event.set()

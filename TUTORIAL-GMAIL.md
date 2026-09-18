@@ -77,8 +77,8 @@ token_gmail.json: autorizado
 Quando o portal pedir o código, o log mostra:
 
 ```
-🔍 Buscando OTP no Gmail automaticamente...
-✓ OTP detectado automaticamente
+🔍 Buscando o código no Gmail...
+✓ Código encontrado no Gmail.
 ```
 
 Se nada aparecer em ~85 segundos, o bot volta para o modo manual e você digita
@@ -94,7 +94,7 @@ manual.**
 | `Arquivo 'credentials.json' nao encontrado` | O arquivo não está na pasta do `bot.py`, ou o bot foi aberto de outra pasta | Copie o `credentials.json` para a pasta do bot e reabra |
 | `access_denied` no navegador | Seu e-mail não está em **Usuários de teste** | Passo 3.6 |
 | "App não verificado" e não deixa passar | Faltou clicar em *Avançado* | Passo 5.4 |
-| Autorizou, mas não acha o código | O e-mail já estava **lido**, ou chegou de outro remetente | Deixe o e-mail sem abrir no celular; o bot só procura não lidos de `santander@santander.com.br` |
+| Autorizou, mas não acha o código | O e-mail chegou de outro remetente, ou antes da tela do código aparecer | O bot procura e-mails de `santander@santander.com.br` dos últimos 5 minutos — lidos ou não. Se o assunto não trouxer o código, ele lê o corpo |
 | `invalid_grant` depois de semanas | O token de app em modo *Teste* expira em 7 dias sem uso | Apague `token_gmail.json` e clique em **Autorizar Gmail** de novo |
 
 ## Segurança

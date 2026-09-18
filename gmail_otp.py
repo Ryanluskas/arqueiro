@@ -1,4 +1,4 @@
-﻿"""
+"""
 gmail_otp.py — Lê automaticamente o código OTP do Santander no Gmail.
 
 Fluxo:
@@ -35,14 +35,28 @@ except ImportError:
 
 # -- Configuracoes -------------------------------------------------------------
 SCOPES            = ["https://www.googleapis.com/auth/gmail.modify"]
-CREDENTIALS_FILE  = "credentials.json"    # baixado do Google Cloud Console
-TOKEN_FILE        = "token_gmail.json"    # gerado automaticamente apos 1a autorizacao
+
+# Caminho ABSOLUTO (pasta deste arquivo). Com caminho relativo, abrir o
+# programa de outra pasta fazia o `credentials.json` "sumir" e a autenticacao
+# falhar em silencio.
+_PASTA            = os.path.dirname(os.path.abspath(__file__))
+CREDENTIALS_FILE  = os.path.join(_PASTA, "credentials.json")
+TOKEN_FILE        = os.path.join(_PASTA, "token_gmail.json")
 
 REMETENTE         = "santander@santander.com.br"
-# Regex: captura exatamente 6 digitos consecutivos (mais flexível)
-_RE_CODIGO        = re.compile(r"(\d{6})")
-# Janela de busca: so considera e-mails chegados nos ultimos N minutos
-JANELA_MINUTOS    = 15
+
+# O codigo vem perto de uma palavra que o anuncia. Pegar "os primeiros 6
+# digitos do e-mail" trazia protocolo, data ou numero de contrato.
+_RE_COM_CONTEXTO  = re.compile(
+    r"(?:c[oó]digo|token|otp|verifica[cç][aã]o|seguran[cç]a|acesso)"
+    r"[^0-9]{0,40}(\d{6})", re.IGNORECASE | re.DOTALL)
+_RE_ISOLADO       = re.compile(r"(?<![0-9])(\d{6})(?![0-9])")
+# Numeros que parecem codigo mas nao sao (ano/mes, CEP com 6, sequencias).
+_RE_DATA          = re.compile(r"20\d{4}")
+
+# Janela de busca: so considera e-mails chegados nos ultimos N minutos. Um
+# codigo de 15 minutos atras ja' expirou no portal.
+JANELA_MINUTOS    = 5
 
 
 # -- Autenticacao --------------------------------------------------------------
@@ -77,10 +91,29 @@ def _get_service():
 
 # -- Extracao do codigo --------------------------------------------------------
 
+def _mascarar(codigo: str) -> str:
+    """O codigo e' credencial de uso unico: no log vai mascarado."""
+    codigo = str(codigo or "")
+    return codigo[:2] + "*" * (len(codigo) - 2) if len(codigo) > 2 else "*" * len(codigo)
+
+
 def _extrair_codigo(texto: str):
-    """Retorna o 1o codigo de 6 digitos encontrado no texto, ou None."""
-    m = _RE_CODIGO.search(texto)
-    return m.group(1) if m else None
+    """O codigo de 6 digitos do texto, ou None.
+
+    Primeiro procura perto de uma palavra que anuncia o codigo ("codigo",
+    "token", "verificacao"...). So' se nao achar nada assim e' que aceita um
+    numero isolado de 6 digitos -- e ainda descarta o que parece data.
+    """
+    texto = texto or ""
+    m = _RE_COM_CONTEXTO.search(texto)
+    if m:
+        return m.group(1)
+    for achado in _RE_ISOLADO.finditer(texto):
+        numero = achado.group(1)
+        if _RE_DATA.fullmatch(numero):
+            continue
+        return numero
+    return None
 
 
 def _decodificar_parte(parte: dict) -> str:
@@ -118,14 +151,21 @@ def _timestamp_unix_minutos_atras(minutos: int) -> int:
     return int(t.timestamp())
 
 
-def checar_otp_agora(service):
-    """
-    Verifica se ha e-mail OTP do Santander nao lido na janela recente.
-    Retorna o codigo de 6 digitos ou None.
+_IDS_CONSUMIDOS: set = set()
+
+
+def checar_otp_agora(service, desde_ts: float = 0.0):
+    """Codigo de 6 digitos de um e-mail do Santander AINDA NAO usado.
+
+    `desde_ts` (epoch) descarta e-mail que chegou antes desta espera: num
+    relogin rapido, a busca devolvia o e-mail da tentativa anterior -- codigo
+    ja' queimado -- e o bot o digitava como se fosse novo.
     """
     try:
         after_ts = _timestamp_unix_minutos_atras(JANELA_MINUTOS)
-        query = f"from:{REMETENTE} is:unread after:{after_ts}"
+        # Sem `is:unread`: se o e-mail foi aberto no celular (ou marcado como
+        # lido por um filtro), o codigo continua valido e o bot precisa achar.
+        query = f"from:{REMETENTE} after:{after_ts}"
 
         resultado = service.users().messages().list(
             userId="me", q=query, maxResults=5
@@ -137,9 +177,19 @@ def checar_otp_agora(service):
 
         for ref in mensagens:
             msg_id = ref["id"]
+            if msg_id in _IDS_CONSUMIDOS:
+                continue                      # este e-mail ja' foi usado
             msg = service.users().messages().get(
                 userId="me", id=msg_id, format="full"
             ).execute()
+
+            # internalDate vem em milissegundos desde a epoca.
+            try:
+                chegou = float(msg.get("internalDate", 0)) / 1000.0
+            except (TypeError, ValueError):
+                chegou = 0.0
+            if desde_ts and chegou and chegou < desde_ts:
+                continue
 
             # Tenta extrair do assunto primeiro (mais rapido)
             headers = msg.get("payload", {}).get("headers", [])
@@ -155,6 +205,7 @@ def checar_otp_agora(service):
                 codigo = _extrair_codigo(corpo)
 
             if codigo:
+                _IDS_CONSUMIDOS.add(msg_id)
                 # Marca como lido para nao reutilizar
                 try:
                     service.users().messages().modify(
@@ -165,7 +216,7 @@ def checar_otp_agora(service):
                 except Exception as e:
                     logger.warning(f"gmail_otp: erro ao marcar como lido: {e}")
 
-                logger.info(f"gmail_otp: codigo encontrado -> {codigo} (assunto: {assunto[:60]})")
+                logger.info(f"gmail_otp: codigo encontrado -> {_mascarar(codigo)}")
                 return codigo
 
     except Exception as e:
@@ -174,7 +225,8 @@ def checar_otp_agora(service):
     return None
 
 
-def aguardar_otp(timeout: int = 90, intervalo: int = 5):
+def aguardar_otp(timeout: int = 90, intervalo: int = 5, desde: float = None,
+                 parar=None):
     """
     Fica verificando o Gmail a cada `intervalo` segundos por ate `timeout` segundos.
     Retorna o codigo OTP encontrado, ou None se esgotar o tempo.
@@ -195,9 +247,15 @@ def aguardar_otp(timeout: int = 90, intervalo: int = 5):
 
     logger.info(f"gmail_otp: aguardando OTP por ate {timeout}s...")
     fim = time.time() + timeout
+    # Uma folga para tras: o e-mail costuma sair no instante em que a tela do
+    # codigo aparece, as vezes um pouco antes de comecarmos a olhar.
+    desde_ts = (desde if desde is not None else time.time()) - 60
 
     while time.time() < fim:
-        codigo = checar_otp_agora(service)
+        if parar is not None and parar.is_set():
+            logger.info("gmail_otp: leitura cancelada (login concluido).")
+            return None
+        codigo = checar_otp_agora(service, desde_ts)
         if codigo:
             return codigo
         time.sleep(intervalo)
