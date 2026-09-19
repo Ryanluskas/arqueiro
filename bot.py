@@ -1,5 +1,5 @@
-"""
-bot.py — Parceiro Santander | Simulação de Crédito Consignado
+﻿"""
+bot.py â€” Parceiro Santander | SimulaÃ§Ã£o de CrÃ©dito Consignado
 """
 
 import os
@@ -41,8 +41,8 @@ except ImportError:
 ARQUIVO_ENTRADA = "clientes.csv"
 RESULTADO_XLSX  = "resultado_filtrado.xlsx"
 COM_REFIN_XLSX  = "com_refinanciamento.xlsx"
-PROGRESSO_XLSX  = "_progresso.xlsx"   # estado completo p/ retomar (uso interno — não abrir)
-DEBUG_MARGEM    = True   # salva _debug_margem.html quando não conseguir ler a margem
+PROGRESSO_XLSX  = "_progresso.xlsx"   # estado completo p/ retomar (uso interno â€” nÃ£o abrir)
+DEBUG_MARGEM    = True   # salva _debug_margem.html quando nÃ£o conseguir ler a margem
 URL_FORMULARIO  = "https://www.parceirosantander.com.br/spa-base/logged-area/recommendation/"
 URL_LANDING     = "https://www.parceirosantander.com.br/spa-base/landing-page"
 PASTA_DO_BOT    = os.path.dirname(os.path.abspath(__file__))
@@ -78,11 +78,11 @@ TIMEOUT         = 25_000
 
 
 def _carregar_credenciais() -> tuple[str, str]:
-    """Lê CPF/senha de variável de ambiente ou de credenciais.ini (fora do código).
+    """LÃª CPF/senha de variÃ¡vel de ambiente ou de credenciais.ini (fora do cÃ³digo).
 
-    O caminho é absoluto (pasta do bot): quando a GUI é aberta de outro
-    diretório, o arquivo relativo não era encontrado e o bot seguia sem
-    credencial, em silêncio.
+    O caminho Ã© absoluto (pasta do bot): quando a GUI Ã© aberta de outro
+    diretÃ³rio, o arquivo relativo nÃ£o era encontrado e o bot seguia sem
+    credencial, em silÃªncio.
     """
     cpf   = os.environ.get("SANTANDER_CPF", "").strip()
     senha = os.environ.get("SANTANDER_SENHA", "").strip()
@@ -95,7 +95,7 @@ def _carregar_credenciais() -> tuple[str, str]:
         except Exception as e:
             logging.getLogger(__name__).warning(f"Falha ao ler credenciais.ini: {e}")
     if not (cpf and senha):
-        print("[AVISO] Credenciais não configuradas. Defina SANTANDER_CPF/SANTANDER_SENHA "
+        print("[AVISO] Credenciais nÃ£o configuradas. Defina SANTANDER_CPF/SANTANDER_SENHA "
               "ou crie credenciais.ini (veja credenciais.ini.exemplo).")
     return cpf, senha
 
@@ -104,10 +104,10 @@ CPF_ACESSO, SENHA_ACESSO = _carregar_credenciais()
 
 
 def recarregar_credenciais() -> bool:
-    """Relê credenciais.ini sem reiniciar o programa.
+    """RelÃª credenciais.ini sem reiniciar o programa.
 
     A GUI grava o arquivo e chama isto; antes, as credenciais eram lidas uma
-    única vez na importação e só valiam na próxima abertura.
+    Ãºnica vez na importaÃ§Ã£o e sÃ³ valiam na prÃ³xima abertura.
     """
     global CPF_ACESSO, SENHA_ACESSO
     CPF_ACESSO, SENHA_ACESSO = _carregar_credenciais()
@@ -121,7 +121,7 @@ def recarregar_config() -> tuple[str, str]:
 
 carregar_config()
 
-BURST_MIN    = 8    # timing conservador (revertido da v13 — evita bloqueio do site)
+BURST_MIN    = 8    # timing conservador (revertido da v13 â€” evita bloqueio do site)
 BURST_MAX    = 12
 DESCANSO_MIN = 45
 DESCANSO_MAX = 70
@@ -223,11 +223,15 @@ def _keepalive(page):
 
 def _digitar(locator, texto: str):
     try:
-        locator.click()
+        locator.click(force=True)
         locator.fill("")
-        locator.type(texto, delay=random.randint(38, 72))
-    except Exception:
         locator.fill(texto)
+        try:
+            locator.evaluate("el => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, arguments[0]); ['input','change','blur'].forEach(e => el.dispatchEvent(new Event(e, {bubbles:true}))); }", texto)
+        except:
+            pass
+    except Exception:
+        pass
 
 def _url_real(page) -> str:
     try:
@@ -236,8 +240,8 @@ def _url_real(page) -> str:
         return page.url
 
 def sessao_expirada(page) -> bool:
-    # Página fechada devolve URL do cache e passava por "sessão viva": toda
-    # ação seguinte estourava sem ninguém tentar relogar.
+    # PÃ¡gina fechada devolve URL do cache e passava por "sessÃ£o viva": toda
+    # aÃ§Ã£o seguinte estourava sem ninguÃ©m tentar relogar.
     try:
         if page.is_closed():
             return True
@@ -263,12 +267,12 @@ def _paginas_logadas(ctx) -> list:
 
 
 def _pagina_logada(ctx):
-    """Alguma aba já está DENTRO do portal (qualquer tela logada).
+    """Alguma aba jÃ¡ estÃ¡ DENTRO do portal (qualquer tela logada).
 
-    `_encontrar_pagina_formulario` exige a rota do formulário; o portal, depois
-    do login, para em `/logged-area/home`. Usar aquela função como prova de
+    `_encontrar_pagina_formulario` exige a rota do formulÃ¡rio; o portal, depois
+    do login, para em `/logged-area/home`. Usar aquela funÃ§Ã£o como prova de
     login fazia o bot concluir "ainda expirado" estando logado, e girar horas
-    no laço de relogin (há 39h de silêncio no bot_log.txt por causa disso).
+    no laÃ§o de relogin (hÃ¡ 39h de silÃªncio no bot_log.txt por causa disso).
     """
     dentro = _paginas_logadas(ctx)
     return dentro[0] if dentro else None
@@ -310,13 +314,13 @@ def _clicar_acessar_portal(page) -> bool:
     return False
 
 # ---------------------------------------------------------------------------
-# CODIGO DE VERIFICACAO (OTP) — apoio
+# CODIGO DE VERIFICACAO (OTP) â€” apoio
 # ---------------------------------------------------------------------------
 def marcar_tela_de_codigo(momento: float = None) -> None:
-    """Registra QUANDO a tela do código apareceu.
+    """Registra QUANDO a tela do cÃ³digo apareceu.
 
-    Código enfileirado bem antes disso é de outra tentativa (e o portal já não
-    aceita); código digitado segundos antes da tela continua valendo.
+    CÃ³digo enfileirado bem antes disso Ã© de outra tentativa (e o portal jÃ¡ nÃ£o
+    aceita); cÃ³digo digitado segundos antes da tela continua valendo.
     """
     global _marco_da_tela
     _marco_da_tela = momento if momento is not None else time.time()
@@ -340,7 +344,7 @@ def _drenar_fila_otp() -> int:
     return descartados
 
 
-# Um código do Santander vale poucos minutos; depois disso não adianta tentar.
+# Um cÃ³digo do Santander vale poucos minutos; depois disso nÃ£o adianta tentar.
 IDADE_MAXIMA_CODIGO = 120.0
 # Folga para o operador que digita ANTES de a tela aparecer (acontece sempre:
 # o e-mail chega antes de o portal renderizar a tela).
@@ -349,17 +353,17 @@ _marco_da_tela = 0.0
 
 
 def enfileirar_codigo(codigo: str) -> None:
-    """Põe o código na fila com a hora de chegada.
+    """PÃµe o cÃ³digo na fila com a hora de chegada.
 
-    O carimbo é o que permite distinguir "o operador acabou de digitar" de
-    "sobrou da tentativa anterior" — antes o laço drenava a fila inteira no
-    início e engolia o código recém-digitado.
+    O carimbo Ã© o que permite distinguir "o operador acabou de digitar" de
+    "sobrou da tentativa anterior" â€” antes o laÃ§o drenava a fila inteira no
+    inÃ­cio e engolia o cÃ³digo recÃ©m-digitado.
     """
     _otp_queue.put((str(codigo or "").strip(), time.time()))
 
 
 def _proximo_codigo():
-    """Próximo código ainda válido; descarta em silêncio os que expiraram."""
+    """PrÃ³ximo cÃ³digo ainda vÃ¡lido; descarta em silÃªncio os que expiraram."""
     while True:
         try:
             item = _otp_queue.get_nowait()
@@ -378,7 +382,7 @@ def _proximo_codigo():
             otp_flow.etapa("queue", "descartar_velho", "expired",
                            idade=f"{int(idade)}s")
             continue
-        # Código que já existia antes desta tela é de outra tentativa.
+        # CÃ³digo que jÃ¡ existia antes desta tela Ã© de outra tentativa.
         if _marco_da_tela and carimbo < _marco_da_tela - GRACA_ANTES_DA_TELA:
             otp_flow.etapa("queue", "descartar_de_outra_tela", "stale",
                            idade=f"{int(idade)}s")
@@ -405,21 +409,21 @@ def _iniciar_watcher_gmail() -> None:
     def _ler():
         try:
             otp_flow.etapa("gmail", "iniciar", "ok")
-            _status_queue.put({"type": "log", "msg": "🔍 Buscando o código no Gmail..."})
+            _status_queue.put({"type": "log", "msg": "ðŸ” Buscando o cÃ³digo no Gmail..."})
             codigo = _gmail_otp.aguardar_otp(timeout=85, intervalo=5,
                                              desde=inicio, parar=_parar_gmail)
             if codigo:
                 enfileirar_codigo(codigo)
                 otp_flow.etapa("gmail", "encontrado", "ok",
                                codigo=otp_flow._mascarar(codigo))
-                _status_queue.put({"type": "log", "msg": "✓ Código encontrado no Gmail."})
+                _status_queue.put({"type": "log", "msg": "âœ“ CÃ³digo encontrado no Gmail."})
             else:
                 otp_flow.etapa("gmail", "busca", "not_found")
                 _status_queue.put({"type": "log",
-                                   "msg": "⚠ Não achei o código no Gmail — digite à mão."})
+                                   "msg": "âš  NÃ£o achei o cÃ³digo no Gmail â€” digite Ã  mÃ£o."})
         except Exception as ex:
             otp_flow.etapa("gmail", "erro", "error", erro=str(ex)[:120])
-            _status_queue.put({"type": "log", "msg": f"⚠ Erro ao ler o Gmail: {ex}"})
+            _status_queue.put({"type": "log", "msg": f"âš  Erro ao ler o Gmail: {ex}"})
 
     _gmail_thread = threading.Thread(target=_ler, daemon=True, name="gmail-otp-watcher")
     _gmail_thread.start()
@@ -437,15 +441,15 @@ def _avisar_que_precisa_de_codigo() -> None:
 
 
 def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
-    """Espera o portal pedir o código, usa o código que chegar, e conclui.
+    """Espera o portal pedir o cÃ³digo, usa o cÃ³digo que chegar, e conclui.
 
-    Cada volta faz três perguntas, nesta ordem: já entrei? a tela do código
-    apareceu? chegou código novo? Só então tenta preencher — e o código só sai
-    da fila quando existe uma tela para usá-lo, em vez de ser consumido e
+    Cada volta faz trÃªs perguntas, nesta ordem: jÃ¡ entrei? a tela do cÃ³digo
+    apareceu? chegou cÃ³digo novo? SÃ³ entÃ£o tenta preencher â€” e o cÃ³digo sÃ³ sai
+    da fila quando existe uma tela para usÃ¡-lo, em vez de ser consumido e
     perdido em qualquer desvio, como acontecia antes.
 
-    Devolve True só quando o portal aceitou o código (ou o login se resolveu
-    sozinho). Nada aqui declara sucesso por ter clicado num botão.
+    Devolve True sÃ³ quando o portal aceitou o cÃ³digo (ou o login se resolveu
+    sozinho). Nada aqui declara sucesso por ter clicado num botÃ£o.
     """
     _aguardando_otp.clear()
     otp_avisado = False
@@ -456,7 +460,7 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
 
     # Foto das abas que JA' estavam logadas: uma aba velha esquecida em
     # /logged-area/ fazia o bot declarar "logado" no primeiro segundo, sem
-    # nunca ter digitado o código.
+    # nunca ter digitado o cÃ³digo.
     ja_logadas = {id(p) for p in _paginas_logadas(ctx)}
 
     def _entrou_agora():
@@ -478,13 +482,13 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
                 _status_queue.put({"type": "login_ok"})
                 return True
 
-            # Tela "Escolha sua forma de receber o código": sem passar por
-            # ela, nenhum código é enviado e a tela do código nunca aparece.
+            # Tela "Escolha sua forma de receber o cÃ³digo": sem passar por
+            # ela, nenhum cÃ³digo Ã© enviado e a tela do cÃ³digo nunca aparece.
             if not canal_escolhido and otp_flow.tela_de_escolha_de_canal(ctx):
                 canal_escolhido = otp_flow.escolher_canal(ctx, preferir_email=True)
                 if canal_escolhido:
                     _status_queue.put({"type": "log",
-                                       "msg": "📧 Pedi o código por e-mail."})
+                                       "msg": "ðŸ“§ Pedi o cÃ³digo por e-mail."})
                     marcar_tela_de_codigo()
                     _iniciar_watcher_gmail()
                 continue
@@ -493,11 +497,11 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
             if alvo is not None and not otp_avisado:
                 otp_avisado = True
                 _aguardando_otp.set()       # segura o fechador de abas
-                marcar_tela_de_codigo()     # corta códigos de tentativas anteriores
+                marcar_tela_de_codigo()     # corta cÃ³digos de tentativas anteriores
                 otp_flow.etapa("detect_screen", alvo.seletor, "ok",
                                tipo=alvo.tipo, campos=alvo.quantidade)
                 _status_queue.put({"type": "log",
-                                   "msg": "🔐 O portal pediu o código de verificação."})
+                                   "msg": "ðŸ” O portal pediu o cÃ³digo de verificaÃ§Ã£o."})
                 _avisar_que_precisa_de_codigo()
                 _iniciar_watcher_gmail()
 
@@ -507,7 +511,7 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
             if not pendente:
                 continue
             if alvo is None:
-                continue                    # guarda o código até a tela existir
+                continue                    # guarda o cÃ³digo atÃ© a tela existir
 
             tentativas_do_codigo += 1
             resultado = otp_flow.preencher_otp(
@@ -516,27 +520,27 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
                 tentativas=2)
 
             if resultado.ok:
-                logger.info("Auto-login: código aceito")
-                _status_queue.put({"type": "log", "msg": "✓ Código aceito."})
+                logger.info("Auto-login: cÃ³digo aceito")
+                _status_queue.put({"type": "log", "msg": "âœ“ CÃ³digo aceito."})
                 _status_queue.put({"type": "login_ok"})
                 return True
 
-            # Não deu: o código só volta a ser tentado se ainda servir.
+            # NÃ£o deu: o cÃ³digo sÃ³ volta a ser tentado se ainda servir.
             if resultado.reutilizavel and tentativas_do_codigo < 2:
                 _status_queue.put({"type": "log",
-                                   "msg": f"⚠ Não consegui usar o código ({resultado.desfecho}); tentando de novo."})
+                                   "msg": f"âš  NÃ£o consegui usar o cÃ³digo ({resultado.desfecho}); tentando de novo."})
                 time.sleep(3)
                 continue
 
             pendente = None
-            motivo = ("o portal recusou o código"
+            motivo = ("o portal recusou o cÃ³digo"
                       if resultado.desfecho == "recusado"
                       else f"falhei em {resultado.desfecho}")
             _status_queue.put({"type": "log",
-                               "msg": f"✗ {motivo}. Digite o código novamente."})
+                               "msg": f"âœ— {motivo}. Digite o cÃ³digo novamente."})
             if resultado.diagnostico:
                 _status_queue.put({"type": "log",
-                                   "msg": f"🛈 Diagnóstico salvo: {os.path.basename(resultado.diagnostico)}"})
+                                   "msg": f"ðŸ›ˆ DiagnÃ³stico salvo: {os.path.basename(resultado.diagnostico)}"})
             _avisar_que_precisa_de_codigo()
     finally:
         _aguardando_otp.clear()
@@ -544,7 +548,7 @@ def aguardar_codigo_e_entrar(ctx, prazo_segundos: int = 90) -> bool:
 
     otp_flow.etapa("wait_code", "prazo", "timeout")
     _status_queue.put({"type": "log",
-                       "msg": "⏰ O prazo do código acabou sem concluir o login."})
+                       "msg": "â° O prazo do cÃ³digo acabou sem concluir o login."})
     return False
 
 
@@ -555,9 +559,9 @@ def _so_digitos(texto: str) -> str:
 def _esperar_visivel(pagina, seletor: str, ms: int = 8000):
     """Espera o campo aparecer DE VERDADE.
 
-    `is_visible(timeout=...)` ignora o timeout e responde na hora: numa página
-    que ainda estava renderizando, os três seletores davam False e o login
-    desistia em silêncio.
+    `is_visible(timeout=...)` ignora o timeout e responde na hora: numa pÃ¡gina
+    que ainda estava renderizando, os trÃªs seletores davam False e o login
+    desistia em silÃªncio.
     """
     try:
         pagina.wait_for_selector(seletor, state="visible", timeout=ms)
@@ -570,15 +574,15 @@ def _preencher_campo_login(pagina, seletores, valor: str, nome: str,
                            so_digitos: bool = False) -> bool:
     """Escreve e CONFERE. Devolve False sem inventar sucesso.
 
-    O campo do CPF tem máscara: mandar "709.589.331-46" pronto faz a máscara
-    formatar por cima e o valor sair inválido -- o botão Entrar fica cinza e
-    nada acontece. Por isso digitamos só os dígitos, tecla a tecla, e
-    comparamos ignorando a pontuação que a própria máscara coloca.
+    O campo do CPF tem mÃ¡scara: mandar "709.589.331-46" pronto faz a mÃ¡scara
+    formatar por cima e o valor sair invÃ¡lido -- o botÃ£o Entrar fica cinza e
+    nada acontece. Por isso digitamos sÃ³ os dÃ­gitos, tecla a tecla, e
+    comparamos ignorando a pontuaÃ§Ã£o que a prÃ³pria mÃ¡scara coloca.
     """
     if not valor:
         otp_flow.etapa("login", f"{nome}", "sem_credencial")
         _status_queue.put({"type": "log",
-                           "msg": f"✗ {nome.upper()} não configurado — aba Configurações."})
+                           "msg": f"âœ— {nome.upper()} nÃ£o configurado â€” aba ConfiguraÃ§Ãµes."})
         return False
 
     escrever = _so_digitos(valor) if so_digitos else valor
@@ -650,7 +654,7 @@ def tentar_login_automatico(page) -> bool:
             return False
         time.sleep(0.8)
 
-        # CPF (o campo tem máscara: só os dígitos entram)
+        # CPF (o campo tem mÃ¡scara: sÃ³ os dÃ­gitos entram)
         cpf_ok = _preencher_campo_login(
             lp, ['input#inputUser', 'input[id="inputUser"]',
                  'input[name*="user" i]', 'input[type="text"]'],
@@ -683,7 +687,7 @@ def tentar_login_automatico(page) -> bool:
         if not cpf_ok:
             otp_flow.etapa("login", "cpf", "falhou")
             _status_queue.put({"type": "log",
-                               "msg": "✗ Não consegui preencher o CPF na tela de login."})
+                               "msg": "âœ— NÃ£o consegui preencher o CPF na tela de login."})
             return False
 
         time.sleep(0.5)
@@ -723,12 +727,12 @@ def tentar_login_automatico(page) -> bool:
         if not senha_ok:
             otp_flow.etapa("login", "senha", "falhou")
             _status_queue.put({"type": "log",
-                               "msg": "✗ Não consegui preencher a senha na tela de login."})
+                               "msg": "âœ— NÃ£o consegui preencher a senha na tela de login."})
             return False
 
         time.sleep(0.5)
 
-        # O "Entrar" nasce desabilitado e só habilita quando a máscara aceita
+        # O "Entrar" nasce desabilitado e sÃ³ habilita quando a mÃ¡scara aceita
         # os dois campos: clicar antes disso trava 30s no auto-wait e volta.
         enviou = False
         for sel in ['button:has-text("Entrar")', 'button[type="submit"]',
@@ -754,9 +758,9 @@ def tentar_login_automatico(page) -> bool:
         if not enviou:
             otp_flow.etapa("login", "entrar", "not_clicked")
             _status_queue.put({"type": "log",
-                               "msg": "⚠ Preenchi os campos, mas não consegui clicar em Entrar."})
+                               "msg": "âš  Preenchi os campos, mas nÃ£o consegui clicar em Entrar."})
 
-        # O portal pode pedir o código de verificação agora.
+        # O portal pode pedir o cÃ³digo de verificaÃ§Ã£o agora.
         if aguardar_codigo_e_entrar(ctx):
             return True
         return False
@@ -771,23 +775,23 @@ def aguardar_relogin(page):
     if found is not None:
         return found
 
-    logger.warning(f"Sessão expirada. URL: {_url_real(page)}")
+    logger.warning(f"SessÃ£o expirada. URL: {_url_real(page)}")
     _status_queue.put({"type": "sessao_expirada"})
 
-    # Recuperação suave: "landing-page" muitas vezes é só um bounce transitório e a
-    # sessão AINDA é válida. Tenta reentrar direto no formulário antes do login completo
-    # (evita pedir OTP/senha à toa).
+    # RecuperaÃ§Ã£o suave: "landing-page" muitas vezes Ã© sÃ³ um bounce transitÃ³rio e a
+    # sessÃ£o AINDA Ã© vÃ¡lida. Tenta reentrar direto no formulÃ¡rio antes do login completo
+    # (evita pedir OTP/senha Ã  toa).
     for _ in range(2):
         try:
             page.goto(URL_FORMULARIO, wait_until="domcontentloaded", timeout=15_000)
             time.sleep(2.5)
             found = _encontrar_pagina_formulario(ctx)
             if found is not None:
-                logger.info("Sessão recuperada sem login (reentrada no formulário)")
+                logger.info("SessÃ£o recuperada sem login (reentrada no formulÃ¡rio)")
                 _status_queue.put({"type": "login_ok"})
                 return found
             if sessao_expirada(page):
-                break   # caiu de novo p/ landing/login → precisa logar mesmo
+                break   # caiu de novo p/ landing/login â†’ precisa logar mesmo
         except Exception:
             pass
 
@@ -805,17 +809,17 @@ def aguardar_relogin(page):
 
     for segundo in range(7200):
         if python_stop_event.is_set():
-            logger.info("Relogin interrompido pelo botão Parar.")
+            logger.info("Relogin interrompido pelo botÃ£o Parar.")
             return None
         if segundo % 5 == 0:
             found = _formulario_apos_login(ctx, navegar=False)
             if found is not None:
-                logger.info("Sessão recuperada (o portal voltou sozinho).")
+                logger.info("SessÃ£o recuperada (o portal voltou sozinho).")
                 _status_queue.put({"type": "login_ok"})
                 return found
         if segundo > 0 and segundo % 300 == 0:
-            # Sem esta linha, o log ficava horas em silêncio e não dava para
-            # saber se o bot estava vivo (há 39h assim no bot_log.txt).
+            # Sem esta linha, o log ficava horas em silÃªncio e nÃ£o dava para
+            # saber se o bot estava vivo (hÃ¡ 39h assim no bot_log.txt).
             logger.info(f"Relogin: ainda tentando ({segundo // 60} min).")
             try:
                 if page.is_closed():
@@ -827,7 +831,7 @@ def aguardar_relogin(page):
                     found = _formulario_apos_login(ctx)
                     if found is not None:
                         return found
-                found = _formulario_apos_login(ctx)   # logado? leva ao formulário
+                found = _formulario_apos_login(ctx)   # logado? leva ao formulÃ¡rio
                 if found is not None:
                     return found
             except Exception as e:
@@ -838,12 +842,12 @@ def aguardar_relogin(page):
 
 
 def _formulario_apos_login(ctx, navegar: bool = True):
-    """A página do formulário, aceitando que o portal pare na home.
+    """A pÃ¡gina do formulÃ¡rio, aceitando que o portal pare na home.
 
-    Depois do login o portal fica em `/logged-area/home`; o critério antigo
-    (URL com `recommendation`) dizia "não logou" e o bot girava no laço de 2h
-    estando logado. Com `navegar=False` a função só CONSULTA — importante no
-    laço de 5 em 5 segundos, que senão martelaria o site com um goto por volta.
+    Depois do login o portal fica em `/logged-area/home`; o critÃ©rio antigo
+    (URL com `recommendation`) dizia "nÃ£o logou" e o bot girava no laÃ§o de 2h
+    estando logado. Com `navegar=False` a funÃ§Ã£o sÃ³ CONSULTA â€” importante no
+    laÃ§o de 5 em 5 segundos, que senÃ£o martelaria o site com um goto por volta.
     """
     found = _encontrar_pagina_formulario(ctx)
     if found is not None:
@@ -855,7 +859,7 @@ def _formulario_apos_login(ctx, navegar: bool = True):
         logada.goto(URL_FORMULARIO, wait_until="domcontentloaded", timeout=15_000)
         time.sleep(2)
     except Exception as e:
-        logger.warning(f"Relogin: logado, mas falhei ao abrir o formulário: {e}")
+        logger.warning(f"Relogin: logado, mas falhei ao abrir o formulÃ¡rio: {e}")
     return _encontrar_pagina_formulario(ctx)
 
 
@@ -868,12 +872,12 @@ _COLUNAS_FIXAS  = ["Nome", "CPF", "DDD", "Celular", "Telefone",
                    "Saldo_Devedor_Total", "Reducao_Total"]
 # Colunas internas (controle do bot) e colunas de detalhe omitidas do output
 _COLUNAS_OCULTAS = {"Tem_Emprestimo"}
-_PREFIXOS_OCULTOS = ("Saldo",)   # Saldo_devedor_N não aparece no Excel
+_PREFIXOS_OCULTOS = ("Saldo",)   # Saldo_devedor_N nÃ£o aparece no Excel
 
 def _to_excel_atomico(df: pd.DataFrame, caminho: str):
-    """Grava num temporário e substitui. Se o destino estiver aberto/bloqueado
-    (ex.: aberto no Excel no Windows), tenta de novo e avisa — sem perder dados."""
-    tmp = caminho + ".tmp.xlsx"   # mantém extensão .xlsx para o engine aceitar
+    """Grava num temporÃ¡rio e substitui. Se o destino estiver aberto/bloqueado
+    (ex.: aberto no Excel no Windows), tenta de novo e avisa â€” sem perder dados."""
+    tmp = caminho + ".tmp.xlsx"   # mantÃ©m extensÃ£o .xlsx para o engine aceitar
     df.to_excel(tmp, index=False)
     for tentativa in range(3):
         try:
@@ -881,8 +885,8 @@ def _to_excel_atomico(df: pd.DataFrame, caminho: str):
             return
         except PermissionError:
             time.sleep(0.6)
-    # ainda bloqueado: mantém o tmp (dados preservados) e avisa para fechar o arquivo
-    msg = (f"[AVISO] Não consegui salvar '{caminho}' — provavelmente está aberto no "
+    # ainda bloqueado: mantÃ©m o tmp (dados preservados) e avisa para fechar o arquivo
+    msg = (f"[AVISO] NÃ£o consegui salvar '{caminho}' â€” provavelmente estÃ¡ aberto no "
            f"Excel. FECHE o arquivo. Dados preservados em '{tmp}'.")
     print(msg)
     try:
@@ -922,8 +926,8 @@ _COLUNAS_CONTROLE = ("Telefone", "Tem_Emprestimo", "Margem_Livre",
 
 
 def _garantir_colunas_controle(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante que as colunas de controle existam. Reconstrói Tem_Emprestimo
-    quando o arquivo veio 'limpo' (sem a coluna interna), pelo que dá pra inferir."""
+    """Garante que as colunas de controle existam. ReconstrÃ³i Tem_Emprestimo
+    quando o arquivo veio 'limpo' (sem a coluna interna), pelo que dÃ¡ pra inferir."""
     for col in _COLUNAS_CONTROLE:
         if col not in df.columns:
             df[col] = ""
@@ -931,9 +935,9 @@ def _garantir_colunas_controle(df: pd.DataFrame) -> pd.DataFrame:
     vazio    = df["Tem_Emprestimo"].astype(str).str.strip() == ""
     tem_red  = df["Reducao_Total"].astype(str).str.strip() != ""
     tem_soma = df["Soma_Parcelas"].astype(str).str.strip() != ""
-    # liberou -> Sim ; tinha contrato mas não liberou -> Não ; resto fica p/ processar
+    # liberou -> Sim ; tinha contrato mas nÃ£o liberou -> NÃ£o ; resto fica p/ processar
     df.loc[vazio & tem_red, "Tem_Emprestimo"] = "Sim"
-    df.loc[vazio & ~tem_red & tem_soma, "Tem_Emprestimo"] = "Não"
+    df.loc[vazio & ~tem_red & tem_soma, "Tem_Emprestimo"] = "NÃ£o"
     return df
 
 
@@ -946,7 +950,7 @@ def carregar_dados() -> pd.DataFrame:
     if os.path.exists(RESULTADO_XLSX):
         return _garantir_colunas_controle(pd.read_excel(RESULTADO_XLSX, dtype=str))
 
-    # 3) Primeira execução: lê o CSV de entrada
+    # 3) Primeira execuÃ§Ã£o: lÃª o CSV de entrada
     df = pd.read_csv(ARQUIVO_ENTRADA, sep=None, engine="python",
                      dtype=str, encoding="utf-8-sig")
     df.columns = [c.strip() for c in df.columns]
@@ -964,7 +968,7 @@ def carregar_dados() -> pd.DataFrame:
             df[col] = ""
 
     df["Telefone"]        = ""
-    df["Tem_Emprestimo"]  = ""   # controle interno — não aparece no Excel final
+    df["Tem_Emprestimo"]  = ""   # controle interno â€” nÃ£o aparece no Excel final
     df["Margem_Livre"]    = ""
     df["Soma_Parcelas"]   = ""
     df["Total_Parcelas"]  = ""
@@ -973,12 +977,12 @@ def carregar_dados() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# FORMULÁRIO
+# FORMULÃRIO
 # ---------------------------------------------------------------------------
 def _tem_campo_nome(page) -> bool:
-    """True quando o formulário de consulta (campo Nome) está realmente na tela."""
+    """True quando o formulÃ¡rio de consulta (campo Nome) estÃ¡ realmente na tela."""
     try:
-        if page.get_by_label("Nome PF ou Sócio").count() > 0:
+        if page.get_by_label("Nome PF ou SÃ³cio").count() > 0:
             return True
     except Exception:
         pass
@@ -989,9 +993,9 @@ def _tem_campo_nome(page) -> bool:
 
 
 def _clicar_ver_produtos_home(page) -> bool:
-    """Na HOME, clica o card 'Ver produtos' (O produto ideal está aqui) que abre o
-    formulário de consulta. Só deve ser chamado quando o campo Nome NÃO está visível —
-    aí o único 'Ver produtos' da tela é o da home, não o botão de envio do formulário."""
+    """Na HOME, clica o card 'Ver produtos' (O produto ideal estÃ¡ aqui) que abre o
+    formulÃ¡rio de consulta. SÃ³ deve ser chamado quando o campo Nome NÃƒO estÃ¡ visÃ­vel â€”
+    aÃ­ o Ãºnico 'Ver produtos' da tela Ã© o da home, nÃ£o o botÃ£o de envio do formulÃ¡rio."""
     for sel in ['a:has-text("Ver produtos")',
                 'button:has-text("Ver produtos")',
                 ':has-text("Ver produtos")']:
@@ -999,7 +1003,7 @@ def _clicar_ver_produtos_home(page) -> bool:
             loc = page.locator(sel).first
             if loc.count() > 0 and loc.is_visible():
                 loc.click()
-                logger.info("  Clicou 'Ver produtos' (home) para abrir o formulário")
+                logger.info("  Clicou 'Ver produtos' (home) para abrir o formulÃ¡rio")
                 return True
         except Exception:
             pass
@@ -1010,12 +1014,12 @@ def aguardar_formulario(page):
     for tentativa in range(3):
         try:
             page.wait_for_selector('label, button, a', timeout=12_000)
-            # 1) Já estamos no formulário (campo Nome presente)?
+            # 1) JÃ¡ estamos no formulÃ¡rio (campo Nome presente)?
             if _tem_campo_nome(page):
                 return
-            # 2) Estamos na HOME com o card "Ver produtos" → clica para abrir o form
+            # 2) Estamos na HOME com o card "Ver produtos" â†’ clica para abrir o form
             if _clicar_ver_produtos_home(page):
-                for _ in range(24):   # espera o formulário (campo Nome) renderizar
+                for _ in range(24):   # espera o formulÃ¡rio (campo Nome) renderizar
                     if _tem_campo_nome(page):
                         return
                     time.sleep(0.5)
@@ -1026,14 +1030,14 @@ def aguardar_formulario(page):
             pass
         if tentativa < 2:
             time.sleep(3)
-    raise PlaywrightTimeoutError("Formulário não encontrado após 3 tentativas")
+    raise PlaywrightTimeoutError("FormulÃ¡rio nÃ£o encontrado apÃ³s 3 tentativas")
 
 
 def preencher_formulario(page, nome: str, cpf: str, ddd: str, celular: str) -> tuple[str, bool]:
-    """Preenche o formulário. Retorna (telefone_usado, telefone_valido).
+    """Preenche o formulÃ¡rio. Retorna (telefone_usado, telefone_valido).
 
-    telefone_valido=False quando foi necessário usar um número-placeholder só para
-    conseguir avançar no portal — nesse caso o telefone NÃO deve ser salvo como real.
+    telefone_valido=False quando foi necessÃ¡rio usar um nÃºmero-placeholder sÃ³ para
+    conseguir avanÃ§ar no portal â€” nesse caso o telefone NÃƒO deve ser salvo como real.
     """
     aguardar_formulario(page)
     _pausa()
@@ -1042,16 +1046,16 @@ def preencher_formulario(page, nome: str, cpf: str, ddd: str, celular: str) -> t
     cel_digits = "".join(ch for ch in celular if ch.isdigit())
     telefone_raw = ddd_digits + cel_digits
 
-    # Valida antes de preencher: precisa ter 11 dígitos e começar com 9 (celular)
+    # Valida antes de preencher: precisa ter 11 dÃ­gitos e comeÃ§ar com 9 (celular)
     telefone_valido = len(telefone_raw) == 11 and telefone_raw[2] == "9"
     if telefone_valido:
         telefone = telefone_raw
     else:
         telefone = ddd_digits + "999999999"
-        logger.info(f"  Celular inválido na origem: {cel_digits!r} → placeholder {telefone}")
-        print(f"  [AVISO] Celular fixo/inválido {cel_digits!r} → placeholder {telefone}")
+        logger.info(f"  Celular invÃ¡lido na origem: {cel_digits!r} â†’ placeholder {telefone}")
+        print(f"  [AVISO] Celular fixo/invÃ¡lido {cel_digits!r} â†’ placeholder {telefone}")
 
-    _digitar(page.get_by_label("Nome PF ou Sócio"), nome)
+    _digitar(page.get_by_label("Nome PF ou SÃ³cio"), nome)
     _pausa()
     _mover_mouse(page)
     _digitar(page.get_by_label("CPF ou CNPJ"), cpf)
@@ -1063,12 +1067,12 @@ def preencher_formulario(page, nome: str, cpf: str, ddd: str, celular: str) -> t
     _pausa(1.0, 1.5)
 
     # Segunda linha de defesa: se o form ainda mostrar erro de celular
-    erros_cel = ['text=Celular inválido', 'text=DDD inválido',
-                 'text=Telefone inválido', 'text=número inválido']
+    erros_cel = ['text=Celular invÃ¡lido', 'text=DDD invÃ¡lido',
+                 'text=Telefone invÃ¡lido', 'text=nÃºmero invÃ¡lido']
     if any(page.locator(s).count() > 0 for s in erros_cel):
         tel_fallback = ddd_digits + "999999999"
-        logger.warning(f"  Erro de celular: {telefone} → placeholder {tel_fallback}")
-        print(f"  [AVISO] Erro celular {telefone} → placeholder {tel_fallback}")
+        logger.warning(f"  Erro de celular: {telefone} â†’ placeholder {tel_fallback}")
+        print(f"  [AVISO] Erro celular {telefone} â†’ placeholder {tel_fallback}")
         telefone = tel_fallback
         telefone_valido = False
         _digitar(page.get_by_label("DDD + Celular"), tel_fallback)
@@ -1079,23 +1083,23 @@ def preencher_formulario(page, nome: str, cpf: str, ddd: str, celular: str) -> t
 
 
 # ---------------------------------------------------------------------------
-# AUTOMAÇÃO
+# AUTOMAÃ‡ÃƒO
 # ---------------------------------------------------------------------------
 def clicar_simular_consignado(page):
     page.wait_for_selector('text=Vitrine de produtos', timeout=TIMEOUT)
     _mover_mouse(page)
     _pausa()
 
-    if page.locator('text=Produto não disponível').count() > 0:
+    if page.locator('text=Produto nÃ£o disponÃ­vel').count() > 0:
         # Cliente sem produto: clica "Cancelar" e confirma "Sim" no modal
-        # "Deseja mesmo cancelar sua oferta?" para VOLTAR à tela de simulação.
-        # Usa cliques robustos (role + JS shadow) pois os botões são Web Components.
+        # "Deseja mesmo cancelar sua oferta?" para VOLTAR Ã  tela de simulaÃ§Ã£o.
+        # Usa cliques robustos (role + JS shadow) pois os botÃµes sÃ£o Web Components.
         _clicar_botao_texto(page, "Cancelar")
         time.sleep(1.0)
         confirmou = _confirmar_cancelamento(page)   # espera o modal e clica "Sim"
-        logger.info(f"  Produto não disponível — cancelado (confirmou Sim={confirmou})")
+        logger.info(f"  Produto nÃ£o disponÃ­vel â€” cancelado (confirmou Sim={confirmou})")
         time.sleep(1.0)
-        raise Exception("não disponível")
+        raise Exception("nÃ£o disponÃ­vel")
 
     clicou = False
     try:
@@ -1113,13 +1117,13 @@ def clicar_simular_consignado(page):
     _pausa()
     time.sleep(1)
 
-    # Fechava TODAS as outras abas sem olhar a URL — inclusive uma aba de
-    # login/código aberta pelo portal nesse instante.
+    # Fechava TODAS as outras abas sem olhar a URL â€” inclusive uma aba de
+    # login/cÃ³digo aberta pelo portal nesse instante.
     _fechar_abas_extras(page.context, page)
 
     if "consorcio" in page.url.lower():
         page.go_back()
-        raise Exception("consórcio — pulando")
+        raise Exception("consÃ³rcio â€” pulando")
 
 
 def fechar_modais(page):
@@ -1208,14 +1212,14 @@ def _preencher_dados_empregador(page):
         return False
 
     def _fill_css(seletores: list[str], valor: str) -> bool:
-        """Preenche por id/formcontrolname em qualquer frame, confere e força via JS se preciso."""
+        """Preenche por id/formcontrolname em qualquer frame, confere e forÃ§a via JS se preciso."""
         for fr in page.frames:
             for sel in seletores:
                 try:
                     loc = fr.locator(sel).first
                     if loc.count() == 0 or not loc.is_editable():
                         continue
-                    # digita tecla por tecla (a máscara dssinputnumber processa cada dígito)
+                    # digita tecla por tecla (a mÃ¡scara dssinputnumber processa cada dÃ­gito)
                     loc.click()
                     try:
                         loc.press("Control+a"); loc.press("Delete")
@@ -1229,7 +1233,7 @@ def _preencher_dados_empregador(page):
                     except Exception:
                         atual = ""
                     if not any(c.isdigit() for c in atual):
-                        # força via JS (native setter + eventos que o Angular escuta)
+                        # forÃ§a via JS (native setter + eventos que o Angular escuta)
                         loc.evaluate(
                             """(el, v) => {
                                 const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
@@ -1250,15 +1254,15 @@ def _preencher_dados_empregador(page):
 
     # --- Preenche cada campo ---
     # Campos reais do portal: id/formcontrolname fixos (sem placeholder/label).
-    # Máscara numérica empurra da direita: "500000" -> R$ 5.000,00
+    # MÃ¡scara numÃ©rica empurra da direita: "500000" -> R$ 5.000,00
     bruto_ok = (_fill_css(['#input-salary', 'input[formcontrolname="salary"]'], "500000")
-                or _tentar(["Salário Bruto", "Bruto", "Sal rio Bruto"], "5000,00"))
+                or _tentar(["SalÃ¡rio Bruto", "Bruto", "Sal rio Bruto"], "5000,00"))
     liquido_ok = (_fill_css(['#input-netSalary', 'input[formcontrolname="netSalary"]'], "400000")
-                  or _tentar(["Salário Liquido", "Salário Líquido", "Liquido", "Líquido", "quido"], "4000,00"))
-    _tentar(["Descontos compulsórios", "Descontos compulsorios", "compuls"], "6,56")
-    _tentar(["Descontos variáveis", "Descontos variaveis", "variáveis", "variaveis", "vari"], "65,56")
+                  or _tentar(["SalÃ¡rio Liquido", "SalÃ¡rio LÃ­quido", "Liquido", "LÃ­quido", "quido"], "4000,00"))
+    _tentar(["Descontos compulsÃ³rios", "Descontos compulsorios", "compuls"], "6,56")
+    _tentar(["Descontos variÃ¡veis", "Descontos variaveis", "variÃ¡veis", "variaveis", "vari"], "65,56")
 
-    # --- Fallback de posição: só ativa se AMBOS os salários falharam ---
+    # --- Fallback de posiÃ§Ã£o: sÃ³ ativa se AMBOS os salÃ¡rios falharam ---
     if not bruto_ok and not liquido_ok:
         try:
             n_filled = page.evaluate("""([v1, v2]) => {
@@ -1278,14 +1282,14 @@ def _preencher_dados_empregador(page):
                 return inputs.slice(0,2).length;
             }""", ["5000,00", "900,00"])
             if n_filled:
-                logger.info(f"  Fallback posição (shadow): {n_filled} input(s) preenchido(s)")
+                logger.info(f"  Fallback posiÃ§Ã£o (shadow): {n_filled} input(s) preenchido(s)")
                 _pausa(0.5, 0.8)
             else:
-                _dump_form_debug(page)   # não achou os salários: salva o HTML p/ diagnóstico
+                _dump_form_debug(page)   # nÃ£o achou os salÃ¡rios: salva o HTML p/ diagnÃ³stico
         except Exception:
             pass
 
-    # --- Data de admissão ---
+    # --- Data de admissÃ£o ---
     def _preencher_data(loc):
         loc.click(force=True)
         time.sleep(0.2)
@@ -1297,10 +1301,10 @@ def _preencher_dados_empregador(page):
 
     data_ok = False
     seletores_data = [
-        # Determinístico: id real do portal
+        # DeterminÃ­stico: id real do portal
         '#admissionDate',
         'input[id="admissionDate"]',
-        # Específico para mat-datepicker
+        # EspecÃ­fico para mat-datepicker
         'mat-form-field:has(mat-datepicker-toggle) input',
         # Por placeholder brasileiro
         'input[placeholder="DD/MM/AAAA"]',
@@ -1309,7 +1313,7 @@ def _preencher_dados_empregador(page):
         # Por texto do mat-form-field
         'mat-form-field:has-text("dmiss") input',
         'mat-form-field:has-text("Data de adm") input',
-        'mat-form-field:has-text("admissão") input',
+        'mat-form-field:has-text("admissÃ£o") input',
         'mat-form-field:has-text("admissao") input',
     ]
     for sel in seletores_data:
@@ -1324,7 +1328,7 @@ def _preencher_dados_empregador(page):
 
     # Fallback via get_by_label
     if not data_ok:
-        for v in ["Data de admissão", "Data de admissao", "Data admissão", "admissão"]:
+        for v in ["Data de admissÃ£o", "Data de admissao", "Data admissÃ£o", "admissÃ£o"]:
             try:
                 loc = page.get_by_label(v, exact=False).first
                 if loc.count() > 0:
@@ -1361,7 +1365,7 @@ def _preencher_dados_empregador(page):
 
 
 def _parse_br_float(s: str) -> float:
-    """'3.411,50' → 3411.5  |  '3.411' → 3411.0  |  '0,00' → 0.0"""
+    """'3.411,50' â†’ 3411.5  |  '3.411' â†’ 3411.0  |  '0,00' â†’ 0.0"""
     s = s.strip()
     if "," in s:
         s = s.replace(".", "").replace(",", ".")
@@ -1376,12 +1380,12 @@ def _parse_br_float(s: str) -> float:
 
 def _calcular_reducao(contratos: list[dict]) -> float:
     """
-    Valor liberado no refinanciamento (fórmula única):
+    Valor liberado no refinanciamento (fÃ³rmula Ãºnica):
 
         soma_parcelas / COEFICIENTE - soma_saldo_devedor
 
     Positivo  -> libera esse valor.
-    Negativo  -> não libera.
+    Negativo  -> nÃ£o libera.
     """
     soma_parcelas = 0.0
     soma_saldo    = 0.0
@@ -1399,25 +1403,25 @@ def _calcular_reducao(contratos: list[dict]) -> float:
 
 def _capturar_contratos_cards(page) -> list[dict]:
     """
-    Lê os cards da tela 'Selecione os contratos que deseja refinanciar'.
-    Estratégia: tenta seletores de card, depois fallback no body completo.
-    Regex flexível: aceita \n, espaços ou ausência entre label e valor.
+    LÃª os cards da tela 'Selecione os contratos que deseja refinanciar'.
+    EstratÃ©gia: tenta seletores de card, depois fallback no body completo.
+    Regex flexÃ­vel: aceita \n, espaÃ§os ou ausÃªncia entre label e valor.
     """
 
     def _extrair_card(texto: str) -> dict:
         """Extrai todos os campos de um bloco de texto de card."""
         c: dict = {}
-        # Número do contrato (ex: 9*****97, 7******86)
+        # NÃºmero do contrato (ex: 9*****97, 7******86)
         m = re.search(r'(\d+\*+\d+)', texto)
         if m:
             c['contrato'] = m.group(1)
-        # Parcelas totais — evita capturar "Parcelas pagas"
+        # Parcelas totais â€” evita capturar "Parcelas pagas"
         m = re.search(r'(?<!pagas\s)Parcelas[\s\n]+(\d+)', texto, re.IGNORECASE)
         if not m:
             m = re.search(r'Parcelas\s*[:\n\r\s]+?(\d+)(?!\s*pagas)', texto, re.IGNORECASE)
         if m:
             c['parcelas'] = m.group(1)
-        # Valor da parcela — tolerante: pula "R$"/espaço/quebra (\D) e pega o valor BR (1.234,56)
+        # Valor da parcela â€” tolerante: pula "R$"/espaÃ§o/quebra (\D) e pega o valor BR (1.234,56)
         m = re.search(r'Valor\s*da\s*parcela\D{0,20}?([\d.]+,\d{2})', texto, re.IGNORECASE)
         if m:
             c['valor_parcela'] = f"R$ {m.group(1)}"
@@ -1429,14 +1433,14 @@ def _capturar_contratos_cards(page) -> list[dict]:
         m = re.search(r'Parcelas pagas[\s\S]{0,10}?(\d+)', texto, re.IGNORECASE)
         if m:
             c['parcelas_pagas'] = m.group(1)
-        # Saldo devedor — tolerante: pula "R$"/espaço/quebra (\D) e pega o valor BR (1.234,56)
+        # Saldo devedor â€” tolerante: pula "R$"/espaÃ§o/quebra (\D) e pega o valor BR (1.234,56)
         m = re.search(r'Saldo\s*devedor\D{0,20}?([\d.]+,\d{2})', texto, re.IGNORECASE)
         if m:
             c['saldo_devedor'] = f"R$ {m.group(1)}"
         return c
 
     def _deep_text() -> str:
-        """Texto de toda a página INCLUSIVE Shadow DOM (innerText comum não pega)."""
+        """Texto de toda a pÃ¡gina INCLUSIVE Shadow DOM (innerText comum nÃ£o pega)."""
         try:
             return page.evaluate(r"""() => {
                 function walk(root){
@@ -1457,11 +1461,11 @@ def _capturar_contratos_cards(page) -> list[dict]:
 
     contratos = []
 
-    # ── Tentativa 0 (preferida): texto profundo (Shadow DOM) + espera estabilizar ──
-    # Espera os cards terminarem de carregar: lê o nº de contratos até parar de crescer.
+    # â”€â”€ Tentativa 0 (preferida): texto profundo (Shadow DOM) + espera estabilizar â”€â”€
+    # Espera os cards terminarem de carregar: lÃª o nÂº de contratos atÃ© parar de crescer.
     ultimo_n = -1
     texto_deep = ""
-    for _ in range(12):   # ~12s no máximo
+    for _ in range(12):   # ~12s no mÃ¡ximo
         texto_deep = _deep_text()
         n_agora = len(re.findall(r'\d+\*+\d+', texto_deep))
         if 'Saldo devedor' in texto_deep and n_agora > 0 and n_agora == ultimo_n:
@@ -1469,7 +1473,7 @@ def _capturar_contratos_cards(page) -> list[dict]:
         ultimo_n = n_agora
         time.sleep(1.0)
 
-    # DEBUG — salva texto deep uma vez por execução p/ diagnosticar regex
+    # DEBUG â€” salva texto deep uma vez por execuÃ§Ã£o p/ diagnosticar regex
     if texto_deep and re.findall(r'\d+\*+\d+', texto_deep):
         if not getattr(_capturar_contratos_cards, '_debug_feito', False):
             try:
@@ -1495,7 +1499,7 @@ def _capturar_contratos_cards(page) -> list[dict]:
                          for c in contratos):
         _dump_contratos_debug(page)
 
-    # ── Tentativa 1: seletores de card ──
+    # â”€â”€ Tentativa 1: seletores de card â”€â”€
     if not contratos:
         for sel in ['mat-card', '[class*="card"]', '[class*="contract"]', 'li', 'article', 'div']:
             locs = page.locator(sel)
@@ -1506,7 +1510,7 @@ def _capturar_contratos_cards(page) -> list[dict]:
             for j in range(n):
                 try:
                     t = locs.nth(j).inner_text().strip()
-                    # Card válido: tem número mascarado OU tem saldo devedor E valor de parcela
+                    # Card vÃ¡lido: tem nÃºmero mascarado OU tem saldo devedor E valor de parcela
                     if (re.search(r'\d+\*+\d+', t) or
                             ('Saldo devedor' in t and 'Valor da parcela' in t)):
                         candidatos.append(t)
@@ -1520,11 +1524,11 @@ def _capturar_contratos_cards(page) -> list[dict]:
                 if contratos:
                     break
 
-    # ── Tentativa 2: body completo, quebra por número de contrato ──
+    # â”€â”€ Tentativa 2: body completo, quebra por nÃºmero de contrato â”€â”€
     if not contratos:
         try:
             corpo = page.inner_text("body")
-            # Divide nos pontos onde começa um novo número de contrato mascarado
+            # Divide nos pontos onde comeÃ§a um novo nÃºmero de contrato mascarado
             partes = re.split(r'(?=\d+\*+\d+)', corpo)
             for parte in partes:
                 if not re.search(r'\d+\*+\d+', parte):
@@ -1537,7 +1541,7 @@ def _capturar_contratos_cards(page) -> list[dict]:
         except Exception as e:
             logger.debug(f"  captura contratos (tentativa 2): {e}")
 
-    # ── Tentativa 3: body completo, quebra por blocos de linha ──
+    # â”€â”€ Tentativa 3: body completo, quebra por blocos de linha â”€â”€
     if not contratos:
         try:
             corpo = page.inner_text("body")
@@ -1555,16 +1559,16 @@ def _capturar_contratos_cards(page) -> list[dict]:
 
 
 def _eh_valor_moeda(v: str) -> bool:
-    """True só se o texto tem cara de dinheiro (centavos, ex.: '-R$ 188,76', 'R$ 0,04').
-    Serve para NÃO confundir a margem com a Matrícula (inteiro puro, ex.: '909801')."""
+    """True sÃ³ se o texto tem cara de dinheiro (centavos, ex.: '-R$ 188,76', 'R$ 0,04').
+    Serve para NÃƒO confundir a margem com a MatrÃ­cula (inteiro puro, ex.: '909801')."""
     return bool(re.search(r'\d,\d{2}', v or ""))
 
 
 def _capturar_margem(page) -> str:
-    """Lê a 'Margem livre' percorrendo o DOM inclusive Shadow DOM. '' se não achar."""
-    # 0-A) TEXTO PROFUNDO (childNodes, atravessa Shadow DOM) — mesma técnica que fez
+    """LÃª a 'Margem livre' percorrendo o DOM inclusive Shadow DOM. '' se nÃ£o achar."""
+    # 0-A) TEXTO PROFUNDO (childNodes, atravessa Shadow DOM) â€” mesma tÃ©cnica que fez
     #      os contratos funcionarem. Pega "Margem livre" seguido do valor (R$ 1.838,40
-    #      ou -R$ 244,84). É a leitura mais confiável neste portal.
+    #      ou -R$ 244,84). Ã‰ a leitura mais confiÃ¡vel neste portal.
     try:
         deep = page.evaluate(r"""() => {
             function walk(root){
@@ -1588,8 +1592,8 @@ def _capturar_margem(page) -> str:
         logger.debug(f"  captura margem (deep text): {e}")
 
     # 0-B) Campo real da "Margem livre": formcontrolname="benefitMargin".
-    #      (Há DOIS #input-margin na tela; o outro é o código de consulta, vazio.)
-    #      O valor fica no .value do input e é preenchido de forma assíncrona.
+    #      (HÃ¡ DOIS #input-margin na tela; o outro Ã© o cÃ³digo de consulta, vazio.)
+    #      O valor fica no .value do input e Ã© preenchido de forma assÃ­ncrona.
     try:
         v = page.evaluate(r"""() => {
             function find(root){
@@ -1609,7 +1613,7 @@ def _capturar_margem(page) -> str:
     except Exception as e:
         logger.debug(f"  captura margem (benefitMargin): {e}")
 
-    # 0) Determinístico: id/formcontrolname reais do portal (campo desabilitado)
+    # 0) DeterminÃ­stico: id/formcontrolname reais do portal (campo desabilitado)
     for fr in page.frames:
         for sel in ('#input-margin', 'input[formcontrolname="benefitMargin"]', 'input[id*="margin"]'):
             try:
@@ -1639,7 +1643,7 @@ def _capturar_margem(page) -> str:
       for (const inp of allInputs(document)){
         if (/margem/i.test(ctx(inp))){
           const v = (inp.value || inp.getAttribute('value') || inp.getAttribute('placeholder') || '').trim();
-          // exige centavos (\d,\d\d) p/ não pegar a Matrícula (inteiro puro) por engano
+          // exige centavos (\d,\d\d) p/ nÃ£o pegar a MatrÃ­cula (inteiro puro) por engano
           if (/\d,\d{2}/.test(v)) return v;
         }
       }
@@ -1649,7 +1653,7 @@ def _capturar_margem(page) -> str:
         return t;
       }
       const txt = allText(document.body || document.documentElement);
-      const m = txt.match(/Margem\s+(?:livre|dispon[ií]vel)[\s:]*(-?\s*R\$\s*[\d.,]+)/i);
+      const m = txt.match(/Margem\s+(?:livre|dispon[iÃ­]vel)[\s:]*(-?\s*R\$\s*[\d.,]+)/i);
       if (m) return m[1].replace(/\s+/g,' ').trim();
       return '';
     }
@@ -1661,7 +1665,7 @@ def _capturar_margem(page) -> str:
     except Exception as e:
         logger.debug(f"  captura margem (js): {e}")
 
-    # Fallback CSS (Playwright já atravessa shadow DOM aberto)
+    # Fallback CSS (Playwright jÃ¡ atravessa shadow DOM aberto)
     for sel in ('mat-form-field:has-text("Margem livre") input',
                 'mat-form-field:has-text("Margem") input',
                 'input[placeholder*="argem"]'):
@@ -1678,12 +1682,12 @@ def _capturar_margem(page) -> str:
         except Exception:
             pass
 
-    _dump_margem_debug(page)   # não achou: salva o HTML do campo p/ diagnóstico
+    _dump_margem_debug(page)   # nÃ£o achou: salva o HTML do campo p/ diagnÃ³stico
     return ""
 
 
 def _dump_margem_debug(page):
-    """Se a margem está na tela mas não foi lida, salva o HTML do campo (1x por execução)."""
+    """Se a margem estÃ¡ na tela mas nÃ£o foi lida, salva o HTML do campo (1x por execuÃ§Ã£o)."""
     if not DEBUG_MARGEM:
         return
     js = r"""
@@ -1705,7 +1709,7 @@ def _dump_margem_debug(page):
         if html and "margem" in html.lower():
             with open("_debug_margem.html", "w", encoding="utf-8") as f:
                 f.write(html)
-            msg = "[DEBUG] Margem não lida — HTML do campo salvo em '_debug_margem.html'. Envie esse arquivo."
+            msg = "[DEBUG] Margem nÃ£o lida â€” HTML do campo salvo em '_debug_margem.html'. Envie esse arquivo."
             print(msg)
             try:
                 _status_queue.put({"type": "log", "msg": msg})
@@ -1716,7 +1720,7 @@ def _dump_margem_debug(page):
 
 
 def _dump_form_debug(page):
-    """Salva o HTML dos campos de Salário/Margem (1x por execução) p/ diagnóstico."""
+    """Salva o HTML dos campos de SalÃ¡rio/Margem (1x por execuÃ§Ã£o) p/ diagnÃ³stico."""
     if not DEBUG_MARGEM:
         return
     js = r"""
@@ -1726,7 +1730,7 @@ def _dump_form_debug(page):
         for (const el of root.querySelectorAll('*')){
           const t  = el.textContent || '';
           const ph = el.getAttribute ? (el.getAttribute('placeholder')||'') : '';
-          if ((/sal[aá]rio|margem|matr[ií]cula|admiss/i.test(t) || /sal[aá]rio|margem/i.test(ph))
+          if ((/sal[aÃ¡]rio|margem|matr[iÃ­]cula|admiss/i.test(t) || /sal[aÃ¡]rio|margem/i.test(ph))
               && el.children.length <= 4) out.push(el.outerHTML);
           if (el.shadowRoot) walk(el.shadowRoot);
         }
@@ -1740,7 +1744,7 @@ def _dump_form_debug(page):
         if html:
             with open("_debug_form.html", "w", encoding="utf-8") as f:
                 f.write(html)
-            msg = ("[DEBUG] Salário/Margem não preenchidos — HTML salvo em "
+            msg = ("[DEBUG] SalÃ¡rio/Margem nÃ£o preenchidos â€” HTML salvo em "
                    "'_debug_form.html'. Envie esse arquivo.")
             print(msg)
             try:
@@ -1752,7 +1756,7 @@ def _dump_form_debug(page):
 
 
 def _dump_contratos_debug(page):
-    """Salva o HTML real dos cards de contrato (1x/execução) p/ validar a conta."""
+    """Salva o HTML real dos cards de contrato (1x/execuÃ§Ã£o) p/ validar a conta."""
     if getattr(_dump_contratos_debug, "_feito", False):
         return
     js = r"""
@@ -1776,7 +1780,7 @@ def _dump_contratos_debug(page):
             with open("_debug_contratos.html", "w", encoding="utf-8") as f:
                 f.write(html)
             _dump_contratos_debug._feito = True
-            msg = ("[DEBUG] Contrato com saldo/parcela faltando — HTML salvo em "
+            msg = ("[DEBUG] Contrato com saldo/parcela faltando â€” HTML salvo em "
                    "'_debug_contratos.html'. Envie esse arquivo.")
             print(msg)
             logger.warning(msg)
@@ -1789,7 +1793,7 @@ def _dump_contratos_debug(page):
 
 
 def _form_empregador_presente(page) -> bool:
-    """True se a tela 'Dados do empregador' já renderizou (varre Shadow DOM)."""
+    """True se a tela 'Dados do empregador' jÃ¡ renderizou (varre Shadow DOM)."""
     js = r"""
     () => {
       function deep(root, fn){
@@ -1799,7 +1803,7 @@ def _form_empregador_presente(page) -> bool:
         }
         return false;
       }
-      // 1) input de Salário pelo id/formcontrolname (mesmo padrão de #input-margin)
+      // 1) input de SalÃ¡rio pelo id/formcontrolname (mesmo padrÃ£o de #input-margin)
       const temSalInput = deep(document, el => {
         if (el.tagName !== 'INPUT') return false;
         const id = (el.id || '').toLowerCase();
@@ -1807,13 +1811,13 @@ def _form_empregador_presente(page) -> bool:
         return id.includes('salary') || fc.includes('salary');
       });
       if (temSalInput) return true;
-      // 2) texto de instrução / título (atravessa shadow)
+      // 2) texto de instruÃ§Ã£o / tÃ­tulo (atravessa shadow)
       function allText(root){
         let t = root.textContent || '';
         for (const el of root.querySelectorAll('*')) if (el.shadowRoot) t += ' ' + allText(el.shadowRoot);
         return t;
       }
-      return /preencha os campos|dados do empregador|sal[aá]rio bruto/i
+      return /preencha os campos|dados do empregador|sal[aÃ¡]rio bruto/i
               .test(allText(document.body || document.documentElement));
     }
     """
@@ -1824,7 +1828,7 @@ def _form_empregador_presente(page) -> bool:
 
 
 def _dump_stepper_debug(page):
-    """Salva o HTML completo da tela 'Dados do empregador' (1x/execução) p/ achar seletores."""
+    """Salva o HTML completo da tela 'Dados do empregador' (1x/execuÃ§Ã£o) p/ achar seletores."""
     if getattr(_dump_stepper_debug, "_feito", False):
         return
     js = r"""
@@ -1833,7 +1837,7 @@ def _dump_stepper_debug(page):
         let html = '';
         for (const el of root.children){
           html += el.outerHTML || '';
-          // anexa o conteúdo de cada shadowRoot logo após o host, marcado
+          // anexa o conteÃºdo de cada shadowRoot logo apÃ³s o host, marcado
           const hosts = el.querySelectorAll ? el.querySelectorAll('*') : [];
           for (const h of hosts){
             if (h.shadowRoot){
@@ -1853,7 +1857,7 @@ def _dump_stepper_debug(page):
             with open("_debug_stepper.html", "w", encoding="utf-8") as f:
                 f.write(html)
             _dump_stepper_debug._feito = True
-            msg = ("[DEBUG] Form não detectado — HTML da tela salvo em "
+            msg = ("[DEBUG] Form nÃ£o detectado â€” HTML da tela salvo em "
                    "'_debug_stepper.html'. Envie esse arquivo.")
             print(msg)
             logger.warning(msg)
@@ -1866,9 +1870,9 @@ def _dump_stepper_debug(page):
 
 
 def _clicar_calcular_margem(page) -> str:
-    """Clica em 'Calcular margem' se o botão existir e estiver habilitado
-    (tela de convênio sem consulta online/base de margem). Retorna a margem
-    capturada após o clique, ou '' se não achou/não clicou."""
+    """Clica em 'Calcular margem' se o botÃ£o existir e estiver habilitado
+    (tela de convÃªnio sem consulta online/base de margem). Retorna a margem
+    capturada apÃ³s o clique, ou '' se nÃ£o achou/nÃ£o clicou."""
     btn_calc = page.locator(
         'button:has-text("Calcular margem"), '
         'button:has-text("Calcular Margem")'
@@ -1895,12 +1899,12 @@ def _clicar_calcular_margem(page) -> str:
 def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
     """
     Fluxo completo por cliente.
-    Retorna ("Sim", reducao_total, contratos, margem_livre) ou ("Não", 0.0, [], "").
-    A presença da tela 'Selecione os contratos' = "Sim".
+    Retorna ("Sim", reducao_total, contratos, margem_livre) ou ("NÃ£o", 0.0, [], "").
+    A presenÃ§a da tela 'Selecione os contratos' = "Sim".
     """
     try:
         page.wait_for_selector(
-            'text=Simulação de empréstimo consignado', timeout=TIMEOUT
+            'text=SimulaÃ§Ã£o de emprÃ©stimo consignado', timeout=TIMEOUT
         )
     except PlaywrightTimeoutError:
         pass
@@ -1909,14 +1913,14 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
     _pausa(1.5, 2.5)
     sim_url = page.url
 
-    # Captura a margem livre já na tela de simulação — vale para todo cliente,
-    # tenha ele refinanciamento ou não.
+    # Captura a margem livre jÃ¡ na tela de simulaÃ§Ã£o â€” vale para todo cliente,
+    # tenha ele refinanciamento ou nÃ£o.
     margem_inicial = _capturar_margem(page)
     if margem_inicial:
-        logger.info(f"  Margem livre (tela simulação): {margem_inicial}")
+        logger.info(f"  Margem livre (tela simulaÃ§Ã£o): {margem_inicial}")
         print(f"  Margem livre: {margem_inicial}")
 
-    # Detecção tolerante: case-insensitive, em botão/link/role, com a frase completa
+    # DetecÃ§Ã£o tolerante: case-insensitive, em botÃ£o/link/role, com a frase completa
     sel_refin = ('button:has-text("Simular Refinanciamento"), '
                  'a:has-text("Simular Refinanciamento"), '
                  '[role="button"]:has-text("Simular Refinanciamento")')
@@ -1929,17 +1933,17 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
         n_links = page.locator(sel_refin).count()
         if n_links > 0:
             break
-        # às vezes os cards só renderizam ao rolar / dar mais tempo
+        # Ã s vezes os cards sÃ³ renderizam ao rolar / dar mais tempo
         try:
             page.mouse.wheel(0, 1400)
             time.sleep(2.0)
         except Exception:
             pass
     if n_links == 0:
-        logger.info("  Sem 'Simular Refinanciamento' visível -> Não")
-        return "Não", 0.0, [], margem_inicial
+        logger.info("  Sem 'Simular Refinanciamento' visÃ­vel -> NÃ£o")
+        return "NÃ£o", 0.0, [], margem_inicial
 
-    logger.info(f"  {n_links} convênio(s) com refinanciamento")
+    logger.info(f"  {n_links} convÃªnio(s) com refinanciamento")
     achou_contrato  = False
     todos_contratos: list[dict] = []
     contratos_vistos: set = set()
@@ -1949,7 +1953,7 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
         if python_stop_event.is_set():
             break
         try:
-            # Volta para a tela de simulação entre convênios
+            # Volta para a tela de simulaÃ§Ã£o entre convÃªnios
             cur = _url_real(page)
             if sim_url not in cur:
                 page.goto(sim_url, wait_until="domcontentloaded", timeout=15_000)
@@ -1964,16 +1968,16 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
             page.wait_for_load_state("domcontentloaded", timeout=15_000)
             _pausa(2.5, 4.0)
 
-            # Captura Margem livre se disponível nesta página
+            # Captura Margem livre se disponÃ­vel nesta pÃ¡gina
             m_val = _capturar_margem(page)
             if m_val and not margem_capturada:
                 margem_capturada = m_val
                 logger.info(f"  Margem livre capturada: {m_val}")
                 print(f"  Margem livre: {m_val}")
 
-            # O formulário "Dados do empregador" é um micro-frontend injetado
+            # O formulÃ¡rio "Dados do empregador" Ã© um micro-frontend injetado
             # dinamicamente (lento) e seus campos ficam em Web Components (Shadow DOM).
-            # Em vez de um teste único, espera ATIVAMENTE até ~25s, varrendo o shadow.
+            # Em vez de um teste Ãºnico, espera ATIVAMENTE atÃ© ~25s, varrendo o shadow.
             form_visivel = False
             for _ in range(25):
                 if python_stop_event.is_set():
@@ -1984,10 +1988,10 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                 time.sleep(1.0)
 
             if form_visivel:
-                logger.info("  Form 'Dados do empregador' detectado — preenchendo")
+                logger.info("  Form 'Dados do empregador' detectado â€” preenchendo")
                 # A margem livre fica NESTE form (ex.: "R$ 1.838,40" / "-R$ 244,84"),
                 # no input formcontrolname="benefitMargin", preenchido de forma
-                # ASSÍNCRONA. Espera até ~10s o valor aparecer antes de desistir.
+                # ASSÃNCRONA. Espera atÃ© ~10s o valor aparecer antes de desistir.
                 if not margem_capturada:
                     for _ in range(10):
                         m_val = _capturar_margem(page)
@@ -2000,22 +2004,22 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                 _pausa(1.0, 1.5)
                 _preencher_dados_empregador(page)
                 _pausa(1.5, 2.5)
-                # Alguns convênios (sem consulta online/base de margem) exigem
+                # Alguns convÃªnios (sem consulta online/base de margem) exigem
                 # clicar "Calcular margem" antes do stepper liberar "Continuar".
                 m_val = _clicar_calcular_margem(page)
                 if m_val and not margem_capturada:
                     margem_capturada = m_val
-                    logger.info(f"  Margem livre pós-cálculo: {m_val}")
-                    print(f"  Margem livre (pós-cálculo): {m_val}")
+                    logger.info(f"  Margem livre pÃ³s-cÃ¡lculo: {m_val}")
+                    print(f"  Margem livre (pÃ³s-cÃ¡lculo): {m_val}")
             else:
-                logger.warning("  Form 'Dados do empregador' NÃO detectado após 25s")
+                logger.warning("  Form 'Dados do empregador' NÃƒO detectado apÃ³s 25s")
                 _dump_stepper_debug(page)   # salva HTML real p/ acertar seletores
 
                 m_val = _clicar_calcular_margem(page)
                 if m_val and not margem_capturada:
                     margem_capturada = m_val
-                    logger.info(f"  Margem livre pós-cálculo: {m_val}")
-                    print(f"  Margem livre (pós-cálculo): {m_val}")
+                    logger.info(f"  Margem livre pÃ³s-cÃ¡lculo: {m_val}")
+                    print(f"  Margem livre (pÃ³s-cÃ¡lculo): {m_val}")
 
             # Garante dropdown = Refinanciamento
             for sel_dd in ['mat-select', 'select']:
@@ -2035,16 +2039,16 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                         _pausa(0.3, 0.5)
                 break
 
-            # Avança o stepper até a tela de contratos (pode ter passo intermediário)
+            # AvanÃ§a o stepper atÃ© a tela de contratos (pode ter passo intermediÃ¡rio)
             _sels_contr_chk = ['text=Selecione os contratos', 'text=deseja refinanciar',
                                'text=contratos que deseja']
             for _passo in range(4):
                 if any(page.locator(s).count() > 0 for s in _sels_contr_chk):
                     break
                 btn_cont = page.locator(
-                    'button:has-text("Continuar"), button:has-text("Avançar"), '
-                    'button:has-text("Próximo"), button:has-text("Simular")')
-                # espera habilitar (até 15s)
+                    'button:has-text("Continuar"), button:has-text("AvanÃ§ar"), '
+                    'button:has-text("PrÃ³ximo"), button:has-text("Simular")')
+                # espera habilitar (atÃ© 15s)
                 habilitou = False
                 for _ in range(30):
                     try:
@@ -2063,7 +2067,7 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                 except Exception:
                     break
 
-            # Tela "Selecione os contratos" → captura contratos
+            # Tela "Selecione os contratos" â†’ captura contratos
             _sels_contratos = [
                 'text=Selecione os contratos',
                 'text=deseja refinanciar',
@@ -2074,17 +2078,17 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                 page.locator(s).count() > 0 for s in _sels_contratos
             )
             cur_url_pos = _url_real(page)
-            logger.info(f"  Convênio {i+1}: tela_contratos={na_tela_contratos} url={cur_url_pos[:60]}")
-            print(f"  Convênio {i+1}: tela_contratos={na_tela_contratos}")
+            logger.info(f"  ConvÃªnio {i+1}: tela_contratos={na_tela_contratos} url={cur_url_pos[:60]}")
+            print(f"  ConvÃªnio {i+1}: tela_contratos={na_tela_contratos}")
             if na_tela_contratos:
-                # Última chance de pegar a margem (às vezes só aparece aqui)
+                # Ãšltima chance de pegar a margem (Ã s vezes sÃ³ aparece aqui)
                 if not margem_capturada:
                     m_val = _capturar_margem(page)
                     if m_val:
                         margem_capturada = m_val
                         logger.info(f"  Margem livre (tela contratos): {m_val}")
                         print(f"  Margem livre (contratos): {m_val}")
-                # --- DEBUG TEMPORÁRIO: salva o texto real da tela de contratos ---
+                # --- DEBUG TEMPORÃRIO: salva o texto real da tela de contratos ---
                 try:
                     corpo = page.inner_text("body")
                 except Exception:
@@ -2116,7 +2120,7 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                     print("  [DEBUG] debug_cards.txt salvo")
                 except Exception as e:
                     logger.debug(f"  debug_cards: {e}")
-                # --- FIM DEBUG TEMPORÁRIO ---
+                # --- FIM DEBUG TEMPORÃRIO ---
 
                 contratos_conv = _capturar_contratos_cards(page)
                 logger.info(f"  [DEBUG] contratos capturados: {contratos_conv}")
@@ -2131,11 +2135,11 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                     todos_contratos.append(c)
                     novos += 1
                 if novos > 0:
-                    achou_contrato = True  # presença de contrato refinanciável
-                logger.info(f"  Convênio {i+1}: {novos} contrato(s) novos (ignorados {len(contratos_conv)-novos} duplicados)")
-                print(f"  Convênio {i+1}: {novos} contrato(s) ✓")
+                    achou_contrato = True  # presenÃ§a de contrato refinanciÃ¡vel
+                logger.info(f"  ConvÃªnio {i+1}: {novos} contrato(s) novos (ignorados {len(contratos_conv)-novos} duplicados)")
+                print(f"  ConvÃªnio {i+1}: {novos} contrato(s) âœ“")
 
-            # Volta para a página de simulação
+            # Volta para a pÃ¡gina de simulaÃ§Ã£o
             try:
                 page.goto(sim_url, wait_until="domcontentloaded", timeout=15_000)
                 _pausa(0.5, 1.0)
@@ -2143,20 +2147,20 @@ def verificar_refinanciamento(page) -> tuple[str, float, list[dict], str]:
                 pass
 
         except Exception as e:
-            logger.warning(f"  Erro convênio {i+1}: {e}")
+            logger.warning(f"  Erro convÃªnio {i+1}: {e}")
             try:
                 page.goto(sim_url, wait_until="domcontentloaded", timeout=15_000)
             except Exception:
                 pass
 
-    # Valor liberado considerando TODOS os contratos (fórmula única)
+    # Valor liberado considerando TODOS os contratos (fÃ³rmula Ãºnica)
     reducao_total = _calcular_reducao(todos_contratos)
-    status = "Sim" if achou_contrato else "Não"
+    status = "Sim" if achou_contrato else "NÃ£o"
     return status, reducao_total, todos_contratos, (margem_capturada or margem_inicial)
 
 
 def _clicar_botao_texto(page, texto: str) -> bool:
-    """Clica um botão pelo texto, robusto p/ Web Components (DSS) do Santander.
+    """Clica um botÃ£o pelo texto, robusto p/ Web Components (DSS) do Santander.
     Tenta role de acessibilidade, CSS e, por fim, JS atravessando Shadow DOM."""
     # 1) role de acessibilidade (funciona p/ button e [role=button])
     try:
@@ -2178,7 +2182,7 @@ def _clicar_botao_texto(page, texto: str) -> bool:
                 return True
         except Exception:
             pass
-    # 3) JS: acha elemento clicável com texto EXATO, atravessando Shadow DOM
+    # 3) JS: acha elemento clicÃ¡vel com texto EXATO, atravessando Shadow DOM
     try:
         ok = page.evaluate(r"""(txt) => {
             const alvo = txt.trim().toLowerCase();
@@ -2209,7 +2213,7 @@ def _clicar_botao_texto(page, texto: str) -> bool:
 
 def _confirmar_cancelamento(page) -> bool:
     """Se o modal 'Deseja mesmo cancelar sua oferta?' estiver aberto, clica 'Sim'.
-    Espera o modal aparecer (até ~5s) e retorna True se confirmou."""
+    Espera o modal aparecer (atÃ© ~5s) e retorna True se confirmou."""
     for _ in range(10):
         try:
             if page.locator('text=cancelar sua oferta').count() > 0:
@@ -2223,8 +2227,8 @@ def _confirmar_cancelamento(page) -> bool:
 
 
 def _no_formulario(page) -> bool:
-    # "No formulário" = campo Nome visível. (Antes checava 'Ver produtos', que também
-    # existe no card da HOME, fazendo o bot achar que já estava no form e não começar.)
+    # "No formulÃ¡rio" = campo Nome visÃ­vel. (Antes checava 'Ver produtos', que tambÃ©m
+    # existe no card da HOME, fazendo o bot achar que jÃ¡ estava no form e nÃ£o comeÃ§ar.)
     return _tem_campo_nome(page)
 
 
@@ -2246,38 +2250,38 @@ def voltar_ao_formulario(page):
             page.goto(URL_FORMULARIO, wait_until="domcontentloaded", timeout=15_000)
             time.sleep(1.5)
             _confirmar_cancelamento(page)
-            aguardar_formulario(page)   # confirma que o formulário realmente carregou
+            aguardar_formulario(page)   # confirma que o formulÃ¡rio realmente carregou
         except Exception:
             pass
 
 
 # Aba que pode ser do portal/login. Estava escrita em dois lugares com listas
-# diferentes; qualquer domínio do Santander (id., sso., ...) agora conta, e
-# `about:blank` também — popup recém-aberto ainda não navegou, e fechá-lo era
-# fechar a própria tela do código.
+# diferentes; qualquer domÃ­nio do Santander (id., sso., ...) agora conta, e
+# `about:blank` tambÃ©m â€” popup recÃ©m-aberto ainda nÃ£o navegou, e fechÃ¡-lo era
+# fechar a prÃ³pria tela do cÃ³digo.
 _ABAS_DE_LOGIN = ("openid", "/login", "corp/protocol", "keycloak", "/auth?",
                   "id.santander", "sso.santander", "verific")
 
 
 def _aba_protegida(url: str, esperando_codigo: bool = False) -> bool:
-    """Aba que não pode ser fechada.
+    """Aba que nÃ£o pode ser fechada.
 
-    Tela de login/código nunca fecha. `about:blank` e duplicata do portal só
-    são poupadas enquanto o código é esperado — fora disso elas voltam a ser
-    recolhidas, como antes, para não acumular aba ao longo de centenas de
-    clientes (e para não sobrar aba velha em /logged-area/).
+    Tela de login/cÃ³digo nunca fecha. `about:blank` e duplicata do portal sÃ³
+    sÃ£o poupadas enquanto o cÃ³digo Ã© esperado â€” fora disso elas voltam a ser
+    recolhidas, como antes, para nÃ£o acumular aba ao longo de centenas de
+    clientes (e para nÃ£o sobrar aba velha em /logged-area/).
     """
     url = (url or "").lower().strip()
     if any(k in url for k in _ABAS_DE_LOGIN):
         return True
     if esperando_codigo:
-        return True          # na dúvida, durante o código não se fecha nada
+        return True          # na dÃºvida, durante o cÃ³digo nÃ£o se fecha nada
     return False
 
 
 def _fechar_abas_extras(ctx, page_principal):
-    # Enquanto o portal espera o código, nenhuma aba é fechada: a tela do
-    # código costuma vir em popup e era morta antes de ser usada.
+    # Enquanto o portal espera o cÃ³digo, nenhuma aba Ã© fechada: a tela do
+    # cÃ³digo costuma vir em popup e era morta antes de ser usada.
     esperando = _aguardando_otp.is_set()
     if esperando:
         return
@@ -2304,9 +2308,9 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
         if python_stop_event.is_set():
             break
 
-        # Resume: pula só os já finalizados. "Erro"/"CPF Inválido" são reprocessados.
+        # Resume: pula sÃ³ os jÃ¡ finalizados. "Erro"/"CPF InvÃ¡lido" sÃ£o reprocessados.
         ja_feito = str(df.at[idx, "Tem_Emprestimo"]).strip()
-        if ja_feito in ("Sim", "Não"):
+        if ja_feito in ("Sim", "NÃ£o"):
             continue
 
         nome    = str(linha.get("Nome",    "Lead")).strip() or "Lead"
@@ -2315,24 +2319,24 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
         celular = str(linha.get("Celular", "")).strip()
 
         cpf_digits = "".join(ch for ch in cpf if ch.isdigit())
-        # CPF vindo de planilha perde ZEROS À ESQUERDA quando é salvo como número
-        # (ex.: 00629627100 -> 629627100). Recupera repondo os zeros à esquerda.
-        # (Comprovado: zfill valida 100% dos CPFs curtos da base; pad à direita geraria
+        # CPF vindo de planilha perde ZEROS Ã€ ESQUERDA quando Ã© salvo como nÃºmero
+        # (ex.: 000.000.000-00 -> 629627100). Recupera repondo os zeros Ã  esquerda.
+        # (Comprovado: zfill valida 100% dos CPFs curtos da base; pad Ã  direita geraria
         #  o CPF de OUTRA pessoa.)
         if len(cpf_digits) > 11:
-            cpf_digits = cpf_digits.lstrip("0")   # tira zeros à esquerda sobrando
+            cpf_digits = cpf_digits.lstrip("0")   # tira zeros Ã  esquerda sobrando
         if 0 < len(cpf_digits) < 11:
-            cpf_digits = cpf_digits.zfill(11)      # repõe zeros à esquerda perdidos
+            cpf_digits = cpf_digits.zfill(11)      # repÃµe zeros Ã  esquerda perdidos
         if len(cpf_digits) != 11:
-            df.at[idx, "Tem_Emprestimo"] = "CPF Inválido"
+            df.at[idx, "Tem_Emprestimo"] = "CPF InvÃ¡lido"
             _salvar_excel(df)
-            _status_queue.put({"type": "log", "msg": f"CPF inválido: {nome}"})
-            print(f"  [SKIP] CPF inválido: {nome} ({cpf})")
+            _status_queue.put({"type": "log", "msg": f"CPF invÃ¡lido: {nome}"})
+            print(f"  [SKIP] CPF invÃ¡lido: {nome} ({cpf})")
             continue
 
         sim_n   = int((df["Tem_Emprestimo"] == "Sim").sum())
-        nao_n   = int((df["Tem_Emprestimo"] == "Não").sum())
-        erros_n = int(df["Tem_Emprestimo"].isin(["Erro", "CPF Inválido"]).sum())
+        nao_n   = int((df["Tem_Emprestimo"] == "NÃ£o").sum())
+        erros_n = int(df["Tem_Emprestimo"].isin(["Erro", "CPF InvÃ¡lido"]).sum())
 
         _status_queue.put({
             "type": "progress", "idx": pos, "total": total,
@@ -2363,7 +2367,7 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
         tel_valido = False
         for tentativa in range(2):
             try:
-                voltar_ao_formulario(page)   # garante a tela do formulário (CPF/nome/celular) antes de preencher
+                voltar_ao_formulario(page)   # garante a tela do formulÃ¡rio (CPF/nome/celular) antes de preencher
                 tel_usado, tel_valido = preencher_formulario(page, nome, cpf_digits, ddd, celular)
                 clicar_simular_consignado(page)
                 fechar_modais(page)
@@ -2385,8 +2389,8 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
             except Exception as e:
                 msg = str(e)
                 logger.warning(f"  ERRO t{tentativa+1}: {msg}")
-                if "não disponível" in msg.lower() or "consórcio" in msg.lower():
-                    status = "Não"
+                if "nÃ£o disponÃ­vel" in msg.lower() or "consÃ³rcio" in msg.lower():
+                    status = "NÃ£o"
                     break
                 if tentativa == 0:
                     if sessao_expirada(page):
@@ -2400,13 +2404,13 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
 
         # Valor liberado: soma_parcelas / 0,021 - saldo_devedor_total
         reducao_valor = _calcular_reducao(contratos) if contratos else 0.0
-        # LOG DEBUG — ver o que tem nos contratos antes de salvar
+        # LOG DEBUG â€” ver o que tem nos contratos antes de salvar
         for _i, _c in enumerate(contratos, 1):
             logger.info(f"  [SALVAR] Contrato {_i}: {_c}")
 
-        # Status final: só "Sim" quando realmente libera valor positivo
+        # Status final: sÃ³ "Sim" quando realmente libera valor positivo
         if status == "Sim" and reducao_valor <= 0:
-            status = "Não"
+            status = "NÃ£o"
 
         # Soma das parcelas mensais
         soma_parc = sum(
@@ -2414,19 +2418,19 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
             for c in contratos if c.get("valor_parcela")
         )
 
-        # Total de parcelas (em quantas vezes estão os empréstimos)
+        # Total de parcelas (em quantas vezes estÃ£o os emprÃ©stimos)
         total_parc = sum(
             int(c["parcelas"]) for c in contratos
             if c.get("parcelas", "").isdigit()
         )
 
-        # Soma dos saldos devedores de TODOS os contratos (é o "saldo devedor" da planilha)
+        # Soma dos saldos devedores de TODOS os contratos (Ã© o "saldo devedor" da planilha)
         soma_saldo = sum(
             _parse_br_float(c.get("saldo_devedor", "0").replace("R$", "").strip())
             for c in contratos if c.get("saldo_devedor")
         )
 
-        # Salva resultado — telefone só é gravado se for um celular real (não placeholder)
+        # Salva resultado â€” telefone sÃ³ Ã© gravado se for um celular real (nÃ£o placeholder)
         df.at[idx, "Telefone"]       = str(tel_usado) if tel_valido else ""
         df.at[idx, "Tem_Emprestimo"] = str(status)   # controle interno
         df.at[idx, "Margem_Livre"]   = str(margem)
@@ -2443,13 +2447,13 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
             'saldo_devedor': 'Saldo_Devedor',
         }
         for n_c, c in enumerate(contratos, 1):
-            # Garante que todos os campos do mapa são salvos, mesmo os vazios
+            # Garante que todos os campos do mapa sÃ£o salvos, mesmo os vazios
             todos_campos = {**{k: "" for k in _MAP_CAMPO}, **c}
             for campo, val in todos_campos.items():
                 col = f"{_MAP_CAMPO.get(campo, campo.capitalize())}_{n_c}"
                 if col not in df.columns:
                     df[col] = ""
-                if val:  # só sobrescreve se tiver valor
+                if val:  # sÃ³ sobrescreve se tiver valor
                     df.at[idx, col] = val
             # Log debug dos saldos
             logger.info(f'  Contrato {n_c}: {c.get(chr(99)+chr(111)+chr(110)+chr(116)+chr(114)+chr(97)+chr(116)+chr(111),"?")} | parcela={c.get("valor_parcela","")} | saldo={c.get("saldo_devedor","")}'
@@ -2457,8 +2461,8 @@ def processar_clientes(page, df: pd.DataFrame) -> pd.DataFrame:
         _salvar_excel(df)
 
         sim_n   = int((df["Tem_Emprestimo"] == "Sim").sum())
-        nao_n   = int((df["Tem_Emprestimo"] == "Não").sum())
-        erros_n = int(df["Tem_Emprestimo"].isin(["Erro", "CPF Inválido"]).sum())
+        nao_n   = int((df["Tem_Emprestimo"] == "NÃ£o").sum())
+        erros_n = int(df["Tem_Emprestimo"].isin(["Erro", "CPF InvÃ¡lido"]).sum())
 
         _status_queue.put({
             "type": "progress", "idx": pos, "total": total,
@@ -2492,8 +2496,8 @@ def main_gui():
     df = carregar_dados()
 
     sim0    = int((df["Tem_Emprestimo"] == "Sim").sum())
-    nao0    = int((df["Tem_Emprestimo"] == "Não").sum())
-    erros0  = int(df["Tem_Emprestimo"].isin(["Erro", "CPF Inválido"]).sum())
+    nao0    = int((df["Tem_Emprestimo"] == "NÃ£o").sum())
+    erros0  = int(df["Tem_Emprestimo"].isin(["Erro", "CPF InvÃ¡lido"]).sum())
     feitos0 = sim0 + nao0 + erros0
 
     _status_queue.put({
@@ -2531,9 +2535,9 @@ def main_gui():
 
             def _checar():
                 # Espera a aba PARAR de ser about:blank antes de julgar. Com
-                # um sleep único de 1,5s, uma aba legítima que ainda estava
-                # navegando era fechada — inclusive a do código.
-                for _ in range(16):          # até ~8s
+                # um sleep Ãºnico de 1,5s, uma aba legÃ­tima que ainda estava
+                # navegando era fechada â€” inclusive a do cÃ³digo.
+                for _ in range(16):          # atÃ© ~8s
                     time.sleep(0.5)
                     if _aguardando_otp.is_set():
                         return
@@ -2577,7 +2581,7 @@ def main_gui():
             time.sleep(2)
 
         if python_stop_event.is_set():
-            # Mantém o Brave aberto mesmo ao parar
+            # MantÃ©m o Brave aberto mesmo ao parar
             while not python_stop_event.wait(timeout=1):
                 pass
             return
@@ -2586,17 +2590,17 @@ def main_gui():
         try:
             df = processar_clientes(page, df)
         except Exception as _exc:
-            logger.error(f"Erro crítico no loop principal: {_exc}", exc_info=True)
-            print(f"[ERRO CRÍTICO] {_exc}")
-            _status_queue.put({"type": "log", "msg": f"Erro crítico: {_exc}"})
+            logger.error(f"Erro crÃ­tico no loop principal: {_exc}", exc_info=True)
+            print(f"[ERRO CRÃTICO] {_exc}")
+            _status_queue.put({"type": "log", "msg": f"Erro crÃ­tico: {_exc}"})
 
         sim   = int((df["Tem_Emprestimo"] == "Sim").sum())
-        nao   = int((df["Tem_Emprestimo"] == "Não").sum())
-        erros = int(df["Tem_Emprestimo"].isin(["Erro", "CPF Inválido"]).sum())
-        _status_queue.put({"type": "log", "msg": f"Concluído! Sim={sim} | Não={nao} | Erros={erros}"})
+        nao   = int((df["Tem_Emprestimo"] == "NÃ£o").sum())
+        erros = int(df["Tem_Emprestimo"].isin(["Erro", "CPF InvÃ¡lido"]).sum())
+        _status_queue.put({"type": "log", "msg": f"ConcluÃ­do! Sim={sim} | NÃ£o={nao} | Erros={erros}"})
         _status_queue.put({"type": "stopped"})
 
-        # Mantém o Brave aberto — aguarda o usuário fechar pelo botão Parar
+        # MantÃ©m o Brave aberto â€” aguarda o usuÃ¡rio fechar pelo botÃ£o Parar
         while not python_stop_event.is_set():
             time.sleep(1)
 
@@ -2628,7 +2632,7 @@ def main():
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(URL_FORMULARIO)
 
-        print("Faça login no Brave e pressione ENTER quando estiver no formulário.")
+        print("FaÃ§a login no Brave e pressione ENTER quando estiver no formulÃ¡rio.")
         input()
 
         found = _encontrar_pagina_formulario(ctx)
@@ -2639,7 +2643,7 @@ def main():
         ctx.close()
 
     _salvar_excel(df)
-    print(f"Concluído! Salvo em '{RESULTADO_XLSX}'.")
+    print(f"ConcluÃ­do! Salvo em '{RESULTADO_XLSX}'.")
 
 
 if __name__ == "__main__":
